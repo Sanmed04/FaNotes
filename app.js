@@ -34,6 +34,7 @@ const pagesContainer = document.getElementById('pagesContainer');
 const openMenuBtn = document.getElementById('openMenuBtn');
 const noteTitle = document.getElementById('noteTitle');
 const noteFolder = document.getElementById('noteFolder');
+const fontFamilySelect = document.getElementById('fontFamily');
 const fontSizeSelect = document.getElementById('fontSize');
 const textColorInput = document.getElementById('textColor');
 const highlightColorInput = document.getElementById('highlightColor');
@@ -51,6 +52,12 @@ const authSwitch = document.getElementById('authSwitch');
 const userEmailEl = document.getElementById('userEmail');
 const logoutBtn = document.getElementById('logoutBtn');
 const themeToggle = document.getElementById('themeToggle');
+const pageCounterEl = document.getElementById('pageCounter');
+const wordCountEl = document.getElementById('wordCount');
+const charCountEl = document.getElementById('charCount');
+
+// Página activa (la que tiene el foco en su .page-body)
+let _activePageSheet = null;
 
 // ——— Modo día/noche ———
 function getTheme() {
@@ -376,6 +383,13 @@ document.querySelectorAll('.btn-tool[data-cmd]').forEach(btn => {
   });
 });
 
+if (fontFamilySelect) {
+  fontFamilySelect.addEventListener('change', () => {
+    const font = fontFamilySelect.value;
+    document.execCommand('fontName', false, font);
+  });
+}
+
 fontSizeSelect.addEventListener('change', () => {
   const size = fontSizeSelect.value;
   const sizes = { 1: '1', 2: '2', 3: '3', 4: '4', 5: '5' };
@@ -410,7 +424,39 @@ function getAllPages() {
 }
 
 function getCurrentPage() {
+  if (_activePageSheet && document.contains(_activePageSheet)) return _activePageSheet;
   return document.getElementById('currentPage') || pagesContainer.querySelector('.sheet.page');
+}
+
+function getEditorTextForStats() {
+  let text = '';
+  pagesContainer.querySelectorAll('.page-body').forEach(body => {
+    text += (body.textContent || '') + '\n';
+  });
+  pagesContainer.querySelectorAll('.text-box .block-content').forEach(el => {
+    text += (el.textContent || '') + '\n';
+  });
+  return text;
+}
+
+function countWords(str) {
+  if (!str || !str.trim()) return 0;
+  return str.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function updateEditorFooter() {
+  if (!pageCounterEl || !wordCountEl || !charCountEl) return;
+  const pages = getAllPages();
+  const current = getCurrentPage();
+  const currentIndex = current ? pages.indexOf(current) : 0;
+  const pageNum = currentIndex + 1;
+  const totalPages = Math.max(1, pages.length);
+  pageCounterEl.textContent = `Pág. ${pageNum} de ${totalPages}`;
+  const text = getEditorTextForStats();
+  const words = countWords(text);
+  const chars = text.length;
+  wordCountEl.textContent = `${words} palabra${words !== 1 ? 's' : ''}`;
+  charCountEl.textContent = `${chars} caracter${chars !== 1 ? 'es' : ''}`;
 }
 
 function createNewPage(pageIndex) {
@@ -426,6 +472,7 @@ function createNewPage(pageIndex) {
   attachPageBodyReflow(body);
   setupBodyImagePaste(body);
   initPageDrawingCanvas(sheet.querySelector('.page-drawing-canvas'), sheet);
+  updateEditorFooter();
   return sheet;
 }
 
@@ -568,6 +615,13 @@ let reflowTimer = null;
 let outlineTimer = null;
 function attachPageBodyReflow(body) {
   if (!body) return;
+  body.addEventListener('focus', () => {
+    const sheet = body.closest('.sheet.page');
+    if (sheet) {
+      _activePageSheet = sheet;
+      updateEditorFooter();
+    }
+  });
   body.addEventListener('keydown', (e) => {
     const sheet = body.closest('.sheet.page');
     if (!sheet) return;
@@ -584,12 +638,13 @@ function attachPageBodyReflow(body) {
           const prevBody = prevSheet.querySelector('.page-body');
           sheet.remove();
           if (prevBody) {
-            prevBody.focus();
-            placeCursorAtEnd(prevBody);
-            prevSheet.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          prevBody.focus();
+          placeCursorAtEnd(prevBody);
+          prevSheet.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }
           saveCurrentNote();
           updateOutlinePanel();
+          updateEditorFooter();
         }
       }
       return;
@@ -613,12 +668,14 @@ function attachPageBodyReflow(body) {
     }
   }, true);
   body.addEventListener('input', () => {
+    updateEditorFooter();
     clearTimeout(reflowTimer);
     reflowTimer = setTimeout(() => {
       const sheet = body.closest('.sheet.page');
       if (sheet) {
         requestAnimationFrame(() => reflowPage(sheet));
       }
+      updateEditorFooter();
     }, 450);
     clearTimeout(outlineTimer);
     outlineTimer = setTimeout(updateOutlinePanel, 200);
@@ -776,6 +833,33 @@ document.getElementById('imageFileInput')?.addEventListener('change', (e) => {
     setupImageElements(body);
   };
   reader.readAsDataURL(file);
+});
+
+// ——— Insertar tabla (estilo Word) ———
+function insertTableAtCursor(rows, cols) {
+  const body = document.querySelector('.page-body:focus') || getCurrentPage()?.querySelector('.page-body');
+  if (!body) return;
+  body.focus();
+  const r = Math.max(1, Math.min(20, parseInt(rows, 10) || 3));
+  const c = Math.max(1, Math.min(10, parseInt(cols, 10) || 3));
+  const cellContent = '<br>';
+  let html = '<table class="doc-table"><tbody>';
+  for (let i = 0; i < r; i++) {
+    html += '<tr>';
+    for (let j = 0; j < c; j++) html += '<td>' + cellContent + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  document.execCommand('insertHTML', false, html);
+  updateEditorFooter();
+}
+
+document.getElementById('insertTableBtn')?.addEventListener('click', () => {
+  const rows = prompt('Filas (1-20):', '3');
+  if (rows == null) return;
+  const cols = prompt('Columnas (1-10):', '3');
+  if (cols == null) return;
+  insertTableAtCursor(rows, cols);
 });
 
 // ——— Panel Títulos a la derecha: todas las hojas, siempre visible (sticky) ———
@@ -1293,6 +1377,9 @@ function loadNoteIntoEditor(note) {
       redrawDrawingCanvas(canvas);
     }
   }
+  const firstSheet = pagesContainer.querySelector('.sheet.page');
+  _activePageSheet = firstSheet || null;
+  updateEditorFooter();
 }
 
 function addBoxToSheet(sheet, b, note) {
@@ -1353,6 +1440,8 @@ function deleteNote(noteId, e) {
           sheet.querySelectorAll('.text-box, .drawing-box').forEach(b => b.remove());
         } else sheet.remove();
       });
+      _activePageSheet = pagesContainer.querySelector('.sheet.page');
+      updateEditorFooter();
     }
   }
   renderNoteList();
@@ -1616,6 +1705,11 @@ async function generateSummary() {
     return;
   }
   const text = getTextFromNote(note);
+  const words = countWords(text);
+  if (words < 100) {
+    alert('Se requieren al menos 100 palabras en la nota para generar el resumen con Gemini.');
+    return;
+  }
   const summaryId = id();
   let sections = generateSummaryFromText(text);
 

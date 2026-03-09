@@ -63,6 +63,16 @@
         <button type="button" class="btn-icon" id="themeToggle" aria-label="Modo día/noche" title="Modo día/noche">🌙</button>
         <button type="button" class="btn-icon btn-menu-main" id="openMenuBtn" aria-label="Abrir/cerrar menú">≡</button>
         <div class="toolbar-group">
+          <select id="fontFamily" title="Fuente">
+            <option value="Arial">Arial</option>
+            <option value="Georgia">Georgia</option>
+            <option value="'Times New Roman'">Times New Roman</option>
+            <option value="Verdana">Verdana</option>
+            <option value="'Courier New'">Courier New</option>
+            <option value="Trebuchet MS">Trebuchet MS</option>
+            <option value="Impact">Impact</option>
+            <option value="Comic Sans MS">Comic Sans MS</option>
+          </select>
           <select id="fontSize" title="Tamaño">
             <option value="1">Pequeño</option>
             <option value="2">Normal</option>
@@ -82,9 +92,9 @@
           <button type="button" class="btn-tool" data-cmd="backColor" data-value="highlightColor" title="Resaltar">🖍</button>
         </div>
         <div class="toolbar-group">
-          <button type="button" class="btn-tool" data-cmd="justifyLeft" title="Izquierda">≡</button>
-          <button type="button" class="btn-tool" data-cmd="justifyCenter" title="Centro">≡</button>
-          <button type="button" class="btn-tool" data-cmd="justifyRight" title="Derecha">≡</button>
+          <button type="button" class="btn-tool btn-align-icon" data-cmd="justifyLeft" title="Alinear a la izquierda" aria-label="Alinear a la izquierda"><span class="icon-align-left" aria-hidden="true"></span></button>
+          <button type="button" class="btn-tool btn-align-icon" data-cmd="justifyCenter" title="Centrar" aria-label="Centrar"><span class="icon-align-center" aria-hidden="true"></span></button>
+          <button type="button" class="btn-tool btn-align-icon" data-cmd="justifyRight" title="Alinear a la derecha" aria-label="Alinear a la derecha"><span class="icon-align-right" aria-hidden="true"></span></button>
           <button type="button" class="btn-tool" data-cmd="insertUnorderedList" title="Lista">•</button>
           <button type="button" class="btn-tool" data-cmd="insertOrderedList" title="Lista numerada">1.</button>
         </div>
@@ -92,6 +102,7 @@
           <button type="button" class="btn-tool" data-cmd="formatHeading" title="Marcar como título">Título</button>
           <button type="button" class="btn-tool" id="addImageBtn" title="Insertar imagen">🖼 Imagen</button>
           <input type="file" id="imageFileInput" accept="image/*" hidden>
+          <button type="button" class="btn-tool" id="insertTableBtn" title="Insertar tabla">⊞ Tabla</button>
           <button type="button" class="btn-tool" id="addTextBox" title="Añadir cuadro de texto">+ Cuadro texto</button>
           <button type="button" class="btn-tool" id="toggleDrawMode" title="Dibujar sobre la hoja">✎ Dibujo</button>
         </div>
@@ -126,6 +137,11 @@
             <ul class="outline-list" id="outlineList"></ul>
           </aside>
         </div>
+        <footer class="editor-footer" id="editorFooter" aria-live="polite">
+          <span class="footer-stat" id="pageCounter">Pág. 1 de 1</span>
+          <span class="footer-stat" id="wordCount">0 palabras</span>
+          <span class="footer-stat" id="charCount">0 caracteres</span>
+        </footer>
       </div>
     </main>
     <div class="image-context-menu" id="imageContextMenu">
