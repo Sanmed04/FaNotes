@@ -919,29 +919,22 @@ function detectShape(points, strokeWidth) {
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const pathLen = points.reduce((acc, p, i) => i ? acc + dist(points[i - 1], p) : 0, 0);
   const len = dist(first, last);
-  const closed = len < Math.max(45, strokeWidth * 10, pathLen * 0.15);
+  let minX = points[0].x, maxX = points[0].x, minY = points[0].y, maxY = points[0].y;
+  points.forEach(p => {
+    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+  });
+  const w = maxX - minX, h = maxY - minY;
+  const rectPerimeter = 2 * (w + h);
+  const closed = len < Math.max(35, strokeWidth * 6, pathLen * 0.12);
 
-  // 1) Círculo: trazo cerrado, puntos a distancia similar del centro (prioridad sobre rect)
-  if (closed && points.length >= 6) {
-    let cx = 0, cy = 0;
-    points.forEach(p => { cx += p.x; cy += p.y; });
-    cx /= points.length; cy /= points.length;
-    let r = 0;
-    points.forEach(p => { r += dist(p, { x: cx, y: cy }); });
-    r /= points.length;
-    if (r > 8) {
-      let err = 0;
-      points.forEach(p => { err += Math.abs(dist(p, { x: cx, y: cy }) - r); });
-      err /= points.length;
-      if (err < Math.max(35, r * 0.32)) {
-        return { type: 'circle', cx, cy, r };
-      }
-    }
+  // 1) Rectángulo/cuadrado: trazo cerrado que recorre el perímetro del bbox (prioridad sobre círculo)
+  if (closed && points.length >= 5 && w > 18 && h > 18 && pathLen > rectPerimeter * 0.72) {
+    return { type: 'rect', x: minX, y: minY, w, h };
   }
 
-  // 2) Triángulo: trazo cerrado con 3 esquinas claras
+  // 2) Triángulo: trazo cerrado con exactamente 3 esquinas claras
   if (closed && points.length >= 5) {
-    const corners = [];
     const angleAt = (i) => {
       const prev = points[i === 0 ? points.length - 1 : i - 1];
       const curr = points[i];
@@ -952,9 +945,10 @@ function detectShape(points, strokeWidth) {
       if (angle > Math.PI) angle = 2 * Math.PI - angle;
       return angle;
     };
+    const corners = [];
     for (let i = 0; i < points.length; i++) {
       const angle = angleAt(i);
-      if (angle < Math.PI * 0.75) corners.push({ i, angle, ...points[i] });
+      if (angle < Math.PI * 0.7) corners.push({ i, angle, ...points[i] });
     }
     if (corners.length >= 3) {
       corners.sort((a, b) => a.angle - b.angle);
@@ -964,25 +958,30 @@ function detectShape(points, strokeWidth) {
         (tri[1].x - tri[0].x) * (tri[2].y - tri[0].y) -
         (tri[2].x - tri[0].x) * (tri[1].y - tri[0].y)
       ) / 2;
-      if (area > 100) return { type: 'triangle', corners: tri };
+      if (area > 80) return { type: 'triangle', corners: tri };
     }
   }
 
-  // 3) Rectángulo: solo si el trazo recorre casi todo el perímetro (evitar confundir con círculo)
-  if (points.length >= 6) {
-    let minX = points[0].x, maxX = points[0].x, minY = points[0].y, maxY = points[0].y;
-    points.forEach(p => {
-      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-    });
-    const w = maxX - minX, h = maxY - minY;
-    if (w > 25 && h > 25) {
-      const perimeter = 2 * (w + h);
-      if (pathLen > perimeter * 0.82) return { type: 'rect', x: minX, y: minY, w, h };
+  // 3) Círculo: solo si es redondo (pathLen ~ pi*d) y puntos a distancia similar del centro
+  if (closed && points.length >= 8 && w > 15 && h > 15) {
+    const circleLike = pathLen >= 2.4 * Math.min(w, h) && pathLen <= 3.6 * Math.min(w, h);
+    if (circleLike) {
+      let cx = 0, cy = 0;
+      points.forEach(p => { cx += p.x; cy += p.y; });
+      cx /= points.length; cy /= points.length;
+      let r = 0;
+      points.forEach(p => { r += dist(p, { x: cx, y: cy }); });
+      r /= points.length;
+      if (r > 6) {
+        let err = 0;
+        points.forEach(p => { err += Math.abs(dist(p, { x: cx, y: cy }) - r); });
+        err /= points.length;
+        if (err < Math.max(22, r * 0.18)) return { type: 'circle', cx, cy, r };
+      }
     }
   }
 
-  // 4) Línea / Flecha: puntos casi alineados (al final para no robar formas cerradas)
+  // 4) Línea / Flecha
   let maxD = 0;
   for (let i = 0; i < points.length; i++) {
     const t = i / Math.max(1, points.length - 1);
@@ -991,9 +990,9 @@ function detectShape(points, strokeWidth) {
     const d = dist(points[i], { x: px, y: py });
     if (d > maxD) maxD = d;
   }
-  const tol = Math.max(28, strokeWidth * 6);
+  const tol = Math.max(24, strokeWidth * 5);
   if (len > 12 && maxD < tol) {
-    if (len > 22) return { type: 'arrow', x1: first.x, y1: first.y, x2: last.x, y2: last.y };
+    if (len > 20) return { type: 'arrow', x1: first.x, y1: first.y, x2: last.x, y2: last.y };
     return { type: 'line', x1: first.x, y1: first.y, x2: last.x, y2: last.y };
   }
 
