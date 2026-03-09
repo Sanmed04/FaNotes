@@ -1003,6 +1003,7 @@ function detectShape(points, strokeWidth) {
 function initPageDrawingCanvas(canvas, sheet) {
   if (!canvas || !sheet) return;
   canvas._paths = canvas._paths || [];
+  canvas._redoStack = canvas._redoStack || [];
   canvas._baseImage = canvas._baseImage || null;
   resizeDrawingCanvas(canvas, sheet);
   const drawColorEl = document.getElementById('drawColor');
@@ -1055,6 +1056,7 @@ function initPageDrawingCanvas(canvas, sheet) {
       ? { ...shape, color, width }
       : { type: 'freehand', points: currentPoints.slice(), color, width };
     canvas._paths.push(path);
+    if (canvas._redoStack) canvas._redoStack.length = 0;
     redrawDrawingCanvas(canvas);
     currentPoints = [];
   }
@@ -1139,14 +1141,38 @@ document.getElementById('addTextBox').addEventListener('click', () => {
   setupBoxDrag(box);
 });
 
-document.getElementById('toggleDrawMode').addEventListener('click', () => setDrawMode(!state.drawMode));
-document.getElementById('undoDrawingStroke')?.addEventListener('click', () => {
+function undoDrawingStroke() {
   const sheet = getCurrentPage();
   const canvas = sheet?.querySelector('.page-drawing-canvas');
   if (!canvas || !canvas._paths || canvas._paths.length === 0) return;
-  canvas._paths.pop();
+  canvas._redoStack = canvas._redoStack || [];
+  canvas._redoStack.push(canvas._paths.pop());
   redrawDrawingCanvas(canvas);
+}
+function redoDrawingStroke() {
+  const sheet = getCurrentPage();
+  const canvas = sheet?.querySelector('.page-drawing-canvas');
+  if (!canvas || !canvas._redoStack || canvas._redoStack.length === 0) return;
+  canvas._paths = canvas._paths || [];
+  canvas._paths.push(canvas._redoStack.pop());
+  redrawDrawingCanvas(canvas);
+}
+
+document.getElementById('toggleDrawMode').addEventListener('click', () => setDrawMode(!state.drawMode));
+document.getElementById('undoDrawingStroke')?.addEventListener('click', undoDrawingStroke);
+
+document.addEventListener('keydown', (e) => {
+  if (!state.drawMode) return;
+  if (e.ctrlKey && e.key === 'z') {
+    e.preventDefault();
+    undoDrawingStroke();
+  } else if (e.ctrlKey && e.key === 'y') {
+    e.preventDefault();
+    redoDrawingStroke();
+  }
 });
+
+document.getElementById('redoDrawingStroke')?.addEventListener('click', redoDrawingStroke);
 
 document.getElementById('clearPageDrawing').addEventListener('click', () => {
   const sheet = getCurrentPage();
