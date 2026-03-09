@@ -275,6 +275,16 @@ function execCommand(cmd, value = null) {
   document.execCommand(cmd, false, value);
 }
 
+function unwrapHeading(span) {
+  if (!span || !span.classList.contains('doc-heading')) return;
+  const parent = span.parentNode;
+  if (!parent) return;
+  while (span.firstChild) {
+    parent.insertBefore(span.firstChild, span);
+  }
+  span.remove();
+}
+
 function applyHeadingToSelection() {
   const sel = window.getSelection();
   const body = document.querySelector('.page-body:focus') || getCurrentPage()?.querySelector('.page-body');
@@ -298,6 +308,21 @@ function applyHeadingToSelection() {
     }
   }
   if (!range || range.collapsed) return;
+  const ancestor = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+    ? range.commonAncestorContainer
+    : range.commonAncestorContainer.parentElement;
+  const headingSpan = ancestor.closest ? ancestor.closest('.doc-heading') : null;
+  if (headingSpan && body.contains(headingSpan)) {
+    const rangeInside = range.cloneRange();
+    rangeInside.selectNodeContents(headingSpan);
+    if (rangeInside.compareBoundaryPoints(Range.START_TO_START, range) <= 0 &&
+        rangeInside.compareBoundaryPoints(Range.END_TO_END, range) >= 0) {
+      unwrapHeading(headingSpan);
+      savedSelection = null;
+      updateOutlinePanel();
+      return;
+    }
+  }
   const span = document.createElement('span');
   span.className = 'doc-heading';
   span.contentEditable = 'true';
@@ -723,27 +748,32 @@ document.getElementById('imageFileInput')?.addEventListener('change', (e) => {
   reader.readAsDataURL(file);
 });
 
-// ——— Panel Títulos a la derecha (sticky) ———
+// ——— Panel Títulos a la derecha: todas las hojas, siempre visible (sticky) ———
 function updateOutlinePanel() {
   const listEl = document.getElementById('outlineList');
-  const body = getCurrentPage()?.querySelector('.page-body');
-  if (!listEl || !body) {
-    if (listEl) listEl.innerHTML = '';
-    return;
-  }
-  const headings = body.querySelectorAll('.doc-heading, h2, h3');
-  listEl.innerHTML = headings.length ? [...headings].map((el, i) => {
-    const text = (el.textContent || '').trim().slice(0, 50);
-    return `<li data-outline-index="${i}">${escapeHtml(text) || '(Título)'}</li>`;
+  if (!listEl) return;
+  const pages = getAllPages();
+  const items = [];
+  pages.forEach((sheet, pageIdx) => {
+    const body = sheet.querySelector('.page-body');
+    if (!body) return;
+    body.querySelectorAll('.doc-heading, h2, h3').forEach(el => {
+      items.push({ sheet, body, el, text: (el.textContent || '').trim().slice(0, 50) });
+    });
+  });
+  listEl.innerHTML = items.length ? items.map((item, i) => {
+    return `<li data-outline-index="${i}">${escapeHtml(item.text) || '(Título)'}</li>`;
   }).join('') : '<li class="outline-empty">Sin títulos</li>';
   listEl.querySelectorAll('li[data-outline-index]').forEach(li => {
     li.addEventListener('click', () => {
       const idx = parseInt(li.dataset.outlineIndex, 10);
-      const all = body.querySelectorAll('.doc-heading, h2, h3');
-      const el = all[idx];
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        if (el.focus) el.focus();
+      const item = items[idx];
+      if (item) {
+        item.sheet.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        requestAnimationFrame(() => {
+          item.el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          if (item.el.focus) item.el.focus();
+        });
       }
     });
   });

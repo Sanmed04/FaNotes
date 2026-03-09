@@ -528,7 +528,7 @@ body {
   justify-content: center;
 }
 
-/* Panel Títulos a la derecha: siempre visible (sticky) al lado de las hojas */
+/* Panel Títulos a la derecha: siempre visible (sticky) en pantalla */
 .outline-panel {
   width: 200px;
   min-width: 200px;
@@ -542,6 +542,7 @@ body {
   top: calc(var(--toolbar-height) + 1rem);
   max-height: calc(100vh - var(--toolbar-height) - 3rem);
   overflow-y: auto;
+  z-index: 10;
 }
 
 .outline-title {
@@ -602,13 +603,12 @@ body {
 .doc-image.wrap-behind { z-index: -1; }
 .doc-image.wrap-front { z-index: 10; }
 
-/* Títulos dentro de la página: alineados a la derecha (medio-derecha) */
+/* Títulos dentro de la página: solo subrayado sutil, sin mover */
 .doc-heading {
-  display: block;
-  font-weight: 700;
-  font-size: 1.1em;
-  margin: 0.75em 0 0.35em;
-  text-align: right;
+  display: inline;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--text-muted);
 }
 
 /* Menú contextual de imagen */
