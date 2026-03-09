@@ -15,10 +15,10 @@ Sitio web responsive para tomar notas con formato tipo Word, bloques movibles, d
 
 ## Resumen con IA (Gemini)
 
-Los resúmenes se generan con **Google Gemini API** (modelo `gemini-1.5-flash`). La API key está en `app.js` en la constante `GEMINI_API_KEY`.
+Los resúmenes con IA se generan con **Google Gemini API** desde el servidor. La API key se configura en el backend (variable de entorno `GEMINI_API_KEY` en `.env` o en Railway); no se expone en el frontend.
 
-- **Seguridad**: La clave queda en el frontend; cualquiera que abra las herramientas de desarrollador puede verla. Para uso personal suele bastar; para público es mejor usar un backend que guarde la clave y llame a Gemini desde el servidor.
-- Si Gemini falla (sin conexión, clave inválida, etc.), se usa un resumen automático a partir de las líneas de la nota.
+- Si no hay clave o Gemini falla, se usa un resumen automático a partir de las líneas de la nota.
+- La función "Resumir" con IA solo está disponible cuando estás **logueado** (el servidor usa la clave de forma segura).
 
 ## Persistencia y sincronización
 
@@ -32,9 +32,10 @@ Los resúmenes se generan con **Google Gemini API** (modelo `gemini-1.5-flash`).
    - **Root Directory**: deja vacío (raíz del repo).
    - **Build Command**: vacío o `cd server && npm install`.
    - **Start Command**: `cd server && node index.js` (o usa el Procfile).
-3. Variables de entorno en Railway:
+3. Variables de entorno en Railway (o en un archivo `.env` en local; ver `.env.example`):
    - `DATABASE_URL`: la que te asigna PostgreSQL.
    - `JWT_SECRET`: una frase o string aleatorio largo (para firmar sesiones).
+   - `GEMINI_API_KEY`: tu API key de Google Gemini (resúmenes con IA). Obtener en [Google AI Studio](https://aistudio.google.com/apikey).
    - `NODE_ENV`: `production`.
 4. El servidor sirve la API (`/auth/*`, `/api/*`) y en producción también los estáticos (index.html, app.js, styles.css) desde la raíz.
 

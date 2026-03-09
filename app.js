@@ -3,15 +3,6 @@
  * Resúmenes generados con Gemini API.
  */
 
-// API de Google Gemini — Se prueba con estos modelos en orden hasta que uno responda
-const GEMINI_API_KEY = 'AIzaSyDiiBEuxcfTfNG72rCLovlQrHFB2npGYjw';
-const GEMINI_MODELS = [
-  'gemini-3.1-flash-lite-preview',
-  'gemini-2.5-flash-lite-preview-09-2025',
-  'gemini-2.0-flash-lite'
-];
-const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-
 const STORAGE_KEY = 'notas-app';
 const STORAGE_NOTES = 'notas-data';
 const STORAGE_FOLDERS = 'notas-folders';
@@ -863,122 +854,30 @@ function generateSummaryFromText(text) {
 }
 
 async function generateSummaryWithGemini(text) {
-  if (!text || !text.trim()) return null;
-  const prompt = `Eres un asistente que resume notas. Resume el siguiente texto en bullet points.
-
-Reglas:
-- Extrae la información más importante.
-- Agrupa por temas si tiene sentido (máximo 4 secciones).
-- Cada bullet debe ser claro y contener la idea principal.
-- Responde ÚNICAMENTE con un JSON válido, sin markdown ni \`\`\`json. Estructura exacta:
-{"sections":[{"title":"Título de la sección","points":["Punto 1","Punto 2",...]}]}
-
-Texto a resumir:
-
-${text.slice(0, 28000)}`;
-
-  const body = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
-  };
-  const headers = {
-    'Content-Type': 'application/json',
-    'X-goog-api-key': GEMINI_API_KEY
-  };
-  let data;
-  let lastError;
-  for (const model of GEMINI_MODELS) {
-    try {
-      const res = await fetch(`${GEMINI_API_BASE}/${model}:generateContent`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body)
-      });
-      if (!res.ok) {
-        lastError = await res.text();
-        continue;
-      }
-      data = await res.json();
-      break;
-    } catch (e) {
-      lastError = e.message;
-    }
+  if (!text || !text.trim() || !getToken()) return null;
+  try {
+    const res = await apiFetch('/api/summarize', { method: 'POST', body: JSON.stringify({ text }) });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    return data.sections || null;
+  } catch (e) {
+    throw e;
   }
-  if (!data) throw new Error(lastError || 'Gemini no respondió');
-  let raw = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!raw) return null;
-  raw = raw.trim();
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (jsonMatch) raw = jsonMatch[0];
-  const parsed = JSON.parse(raw);
-  if (parsed.sections && Array.isArray(parsed.sections)) {
-    return parsed.sections.map(s => ({
-      title: s.title || 'Resumen',
-      points: Array.isArray(s.points) ? s.points : [String(s.points || '')]
-    }));
-  }
-  return null;
 }
 
 async function generateSummaryWithGeminiContinue(noteText, existingSections) {
-  if (!noteText || !noteText.trim()) return null;
-  const existingStr = (existingSections || []).map(sec =>
-    `**${sec.title}**: ${(sec.points || []).join('; ')}`
-  ).join('\n');
-  const prompt = `Eres un asistente que resume notas. Ya tenemos este resumen parcial (NO lo repitas):
-
----
-${existingStr}
----
-
-Del siguiente texto de la nota, genera SOLO información NUEVA que aún no esté en el resumen anterior. No repitas ningún punto ni sección ya listados. Añade nuevas secciones o nuevos bullets con información importante que falte.
-
-Responde ÚNICAMENTE con un JSON válido, sin markdown. Estructura: {"sections":[{"title":"Título","points":["Punto 1",...]}]}
-
-Texto de la nota:
-${noteText.slice(0, 28000)}`;
-
-  const body = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
-  };
-  const headers = {
-    'Content-Type': 'application/json',
-    'X-goog-api-key': GEMINI_API_KEY
-  };
-  let data;
-  let lastError;
-  for (const model of GEMINI_MODELS) {
-    try {
-      const res = await fetch(`${GEMINI_API_BASE}/${model}:generateContent`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body)
-      });
-      if (!res.ok) {
-        lastError = await res.text();
-        continue;
-      }
-      data = await res.json();
-      break;
-    } catch (e) {
-      lastError = e.message;
-    }
+  if (!noteText || !noteText.trim() || !getToken()) return null;
+  try {
+    const res = await apiFetch('/api/summarize', {
+      method: 'POST',
+      body: JSON.stringify({ text: noteText, existingSections: existingSections || [] })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    return data.sections || null;
+  } catch (e) {
+    throw e;
   }
-  if (!data) throw new Error(lastError || 'Gemini no respondió');
-  let raw = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!raw) return null;
-  raw = raw.trim();
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (jsonMatch) raw = jsonMatch[0];
-  const parsed = JSON.parse(raw);
-  if (parsed.sections && Array.isArray(parsed.sections)) {
-    return parsed.sections.map(s => ({
-      title: s.title || 'Resumen',
-      points: Array.isArray(s.points) ? s.points : [String(s.points || '')]
-    }));
-  }
-  return null;
 }
 
 async function generateSummary() {

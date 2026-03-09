@@ -8,6 +8,9 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'cambiar-en-produccion-notas-secret';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+const GEMINI_MODELS = ['gemini-3.1-flash-lite-preview', 'gemini-2.5-flash-lite-preview-09-2025', 'gemini-2.0-flash-lite'];
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 const pool = new Pool({
@@ -205,6 +208,87 @@ app.delete('/api/summaries/:id', authMiddleware, async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: 'Error' });
+  }
+});
+
+async function callGemini(prompt) {
+  if (!GEMINI_API_KEY) throw new Error('GEMINI_API_KEY no configurada');
+  let lastError;
+  for (const model of GEMINI_MODELS) {
+    try {
+      const res = await fetch(`${GEMINI_API_BASE}/${model}:generateContent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-goog-api-key': GEMINI_API_KEY
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 2048 }
+        })
+      });
+      if (!res.ok) {
+        lastError = await res.text();
+        continue;
+      }
+      const data = await res.json();
+      const raw = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!raw) continue;
+      const jsonMatch = raw.trim().match(/\{[\s\S]*\}/);
+      const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+      if (parsed?.sections && Array.isArray(parsed.sections)) {
+        return parsed.sections.map(s => ({
+          title: s.title || 'Resumen',
+          points: Array.isArray(s.points) ? s.points : [String(s.points || '')]
+        }));
+      }
+    } catch (e) {
+      lastError = e.message;
+    }
+  }
+  throw new Error(lastError || 'Gemini no respondió');
+}
+
+app.post('/api/summarize', authMiddleware, async (req, res) => {
+  try {
+    const { text, existingSections } = req.body || {};
+    if (!text || !String(text).trim()) return res.status(400).json({ error: 'text requerido' });
+    let prompt;
+    if (existingSections && existingSections.length > 0) {
+      const existingStr = existingSections.map(sec =>
+        `**${sec.title}**: ${(sec.points || []).join('; ')}`
+      ).join('\n');
+      prompt = `Eres un asistente que resume notas. Ya tenemos este resumen parcial (NO lo repitas):
+
+---
+${existingStr}
+---
+
+Del siguiente texto de la nota, genera SOLO información NUEVA que aún no esté en el resumen anterior. No repitas ningún punto ni sección ya listados. Añade nuevas secciones o nuevos bullets con información importante que falte.
+
+Responde ÚNICAMENTE con un JSON válido, sin markdown. Estructura: {"sections":[{"title":"Título","points":["Punto 1",...]}]}
+
+Texto de la nota:
+${String(text).slice(0, 28000)}`;
+    } else {
+      prompt = `Eres un asistente que resume notas. Resume el siguiente texto en bullet points.
+
+Reglas:
+- Extrae la información más importante.
+- Agrupa por temas si tiene sentido (máximo 4 secciones).
+- Cada bullet debe ser claro y contener la idea principal.
+- Responde ÚNICAMENTE con un JSON válido, sin markdown ni \`\`\`json. Estructura exacta:
+{"sections":[{"title":"Título de la sección","points":["Punto 1","Punto 2",...]}]}
+
+Texto a resumir:
+
+${String(text).slice(0, 28000)}`;
+    }
+    const sections = await callGemini(prompt);
+    res.json({ sections });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message || 'Error al resumir' });
   }
 });
 
