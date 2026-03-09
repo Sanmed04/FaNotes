@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notas — Editor de notas y resúmenes</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Pantalla de inicio de sesión (se oculta al estar logueado) -->
+  <div class="auth-screen" id="authScreen">
+    <div class="auth-box">
+      <h1 class="auth-title">Notas</h1>
+      <p class="auth-subtitle">Inicia sesión para ver tus notas en todos los dispositivos</p>
+      <form id="authForm" class="auth-form">
+        <input type="email" id="authEmail" placeholder="Email" required autocomplete="email">
+        <input type="password" id="authPassword" placeholder="Contraseña (mín. 6)" required minlength="6" autocomplete="current-password">
+        <p id="authError" class="auth-error"></p>
+        <div class="auth-buttons">
+          <button type="submit" class="btn btn-primary" id="authSubmit">Iniciar sesión</button>
+          <button type="button" class="btn btn-secondary" id="authSwitch">Crear cuenta</button>
+        </div>
+        <button type="button" class="btn-link" id="authSkip">Continuar sin cuenta (solo este dispositivo)</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="app" id="appMain">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <h1 class="logo">Notas</h1>
+        <div class="sidebar-user">
+          <span class="user-email" id="userEmail"></span>
+          <button type="button" class="btn btn-secondary btn-sm" id="logoutBtn" title="Cerrar sesión">Cerrar sesión</button>
+        </div>
+      </div>
+      <div class="sidebar-actions">
+        <button class="btn btn-primary" id="newNote">+ Nueva nota</button>
+        <button class="btn btn-secondary" id="newFolder">+ Carpeta</button>
+      </div>
+      <div class="folders-section">
+        <div class="section-title">Carpetas</div>
+        <ul class="folder-list" id="folderList"></ul>
+      </div>
+      <div class="notes-section">
+        <div class="section-title">Notas</div>
+        <ul class="note-list" id="noteList"></ul>
+      </div>
+      <div class="summaries-section">
+        <div class="section-title">Resúmenes</div>
+        <ul class="summary-list" id="summaryList"></ul>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main">
+      <header class="toolbar">
+        <button type="button" class="btn-icon btn-menu-main" id="openMenuBtn" aria-label="Abrir/cerrar menú">≡</button>
+        <div class="toolbar-group">
+          <select id="fontSize" title="Tamaño">
+            <option value="1">Pequeño</option>
+            <option value="2">Normal</option>
+            <option value="3">Mediano</option>
+            <option value="4">Grande</option>
+            <option value="5">Muy grande</option>
+          </select>
+          <button type="button" class="btn-tool" data-cmd="bold" title="Negrita">B</button>
+          <button type="button" class="btn-tool" data-cmd="italic" title="Cursiva">I</button>
+          <button type="button" class="btn-tool" data-cmd="underline" title="Subrayado">S</button>
+          <button type="button" class="btn-tool" data-cmd="strikeThrough" title="Tachado">T</button>
+        </div>
+        <div class="toolbar-group">
+          <input type="color" id="textColor" value="#000000" title="Color de texto">
+          <input type="color" id="highlightColor" value="#ffff00" title="Resaltar">
+          <button type="button" class="btn-tool" data-cmd="foreColor" data-value="textColor" title="Aplicar color texto">A</button>
+          <button type="button" class="btn-tool" data-cmd="backColor" data-value="highlightColor" title="Resaltar">🖍</button>
+        </div>
+        <div class="toolbar-group">
+          <button type="button" class="btn-tool" data-cmd="justifyLeft" title="Izquierda">≡</button>
+          <button type="button" class="btn-tool" data-cmd="justifyCenter" title="Centro">≡</button>
+          <button type="button" class="btn-tool" data-cmd="justifyRight" title="Derecha">≡</button>
+          <button type="button" class="btn-tool" data-cmd="insertUnorderedList" title="Lista">•</button>
+          <button type="button" class="btn-tool" data-cmd="insertOrderedList" title="Lista numerada">1.</button>
+        </div>
+        <div class="toolbar-group">
+          <button type="button" class="btn-tool" id="addTextBox" title="Añadir cuadro de texto">+ Cuadro texto</button>
+          <button type="button" class="btn-tool" id="toggleDrawMode" title="Dibujar sobre la hoja">✎ Dibujo</button>
+        </div>
+        <div class="toolbar-group draw-tools" id="drawTools" style="display: none;">
+          <input type="color" id="drawColor" value="#000000" title="Color del pincel">
+          <input type="range" id="drawSize" min="1" max="20" value="3" title="Grosor">
+          <button type="button" class="btn btn-secondary btn-sm" id="clearPageDrawing">Borrar dibujo</button>
+        </div>
+        <div class="toolbar-group toolbar-actions">
+          <button type="button" class="btn btn-secondary" id="generateSummary" title="Generar resumen con bullets">Resumir</button>
+          <button type="button" class="btn btn-primary" id="exportPdf">Exportar PDF</button>
+        </div>
+      </header>
+
+      <div class="page-content" id="pageContent">
+        <div class="note-meta">
+          <input type="text" class="note-title-input" id="noteTitle" placeholder="Título de la nota">
+          <select id="noteFolder" class="note-folder-select">
+            <option value="">Sin carpeta</option>
+          </select>
+        </div>
+        <div class="pages-container" id="pagesContainer">
+          <div class="sheet page" id="currentPage" data-page-index="0">
+            <div class="page-body" contenteditable="true" data-placeholder="Escribe en la hoja..."></div>
+            <canvas class="page-drawing-canvas" aria-label="Dibujo sobre la hoja"></canvas>
+            <div class="text-box block block-text" data-type="text" data-box-id="" style="left:40px;top:40px;width:260px;height:140px;">
+              <div class="box-handle" title="Arrastrar">⋮⋮</div>
+              <button type="button" class="box-delete" title="Eliminar">×</button>
+              <div class="block-toolbar">
+                <button type="button" class="btn-tool small" data-cmd="bold">B</button>
+                <button type="button" class="btn-tool small" data-cmd="italic">I</button>
+                <button type="button" class="btn-tool small" data-cmd="underline">S</button>
+                <input type="color" class="block-color" value="#000000">
+              </div>
+              <div class="block-content contenteditable-root" contenteditable="true" data-placeholder="Escribe aquí..."></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Overlay sidebar on mobile -->
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+  </div>
+
+  <!-- Modal Resumen -->
+  <div class="modal" id="summaryModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Resumen</h2>
+        <button type="button" class="btn-close" id="closeSummaryModal">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="summaryContent" class="summary-content"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="continueSummaryBtn">Seguir generando</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Vista principal / Resúmenes (tabs o vista única) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
