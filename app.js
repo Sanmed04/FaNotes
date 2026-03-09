@@ -928,13 +928,8 @@ function detectShape(points, strokeWidth) {
   const rectPerimeter = 2 * (w + h);
   const closed = len < Math.max(35, strokeWidth * 6, pathLen * 0.12);
 
-  // 1) Rectángulo/cuadrado: trazo cerrado que recorre el perímetro del bbox (prioridad sobre círculo)
-  if (closed && points.length >= 5 && w > 18 && h > 18 && pathLen > rectPerimeter * 0.72) {
-    return { type: 'rect', x: minX, y: minY, w, h };
-  }
-
-  // 2) Triángulo: trazo cerrado con exactamente 3 esquinas claras
-  if (closed && points.length >= 5) {
+  // 1) Triángulo PRIMERO: trazo cerrado con 3 esquinas (path más corto que el bbox)
+  if (closed && points.length >= 4 && w > 12 && h > 12) {
     const angleAt = (i) => {
       const prev = points[i === 0 ? points.length - 1 : i - 1];
       const curr = points[i];
@@ -948,7 +943,7 @@ function detectShape(points, strokeWidth) {
     const corners = [];
     for (let i = 0; i < points.length; i++) {
       const angle = angleAt(i);
-      if (angle < Math.PI * 0.7) corners.push({ i, angle, ...points[i] });
+      if (angle < Math.PI * 0.85) corners.push({ i, angle, ...points[i] });
     }
     if (corners.length >= 3) {
       corners.sort((a, b) => a.angle - b.angle);
@@ -958,8 +953,14 @@ function detectShape(points, strokeWidth) {
         (tri[1].x - tri[0].x) * (tri[2].y - tri[0].y) -
         (tri[2].x - tri[0].x) * (tri[1].y - tri[0].y)
       ) / 2;
-      if (area > 80) return { type: 'triangle', corners: tri };
+      const triPerimeter = dist(tri[0], tri[1]) + dist(tri[1], tri[2]) + dist(tri[2], tri[0]);
+      if (area > 40 && pathLen < rectPerimeter * 0.95) return { type: 'triangle', corners: tri };
     }
+  }
+
+  // 2) Rectángulo: solo si el trazo recorre casi todo el perímetro del bbox (no triángulos)
+  if (closed && points.length >= 5 && w > 18 && h > 18 && pathLen > rectPerimeter * 0.88) {
+    return { type: 'rect', x: minX, y: minY, w, h };
   }
 
   // 3) Círculo: solo si es redondo (pathLen ~ pi*d) y puntos a distancia similar del centro
