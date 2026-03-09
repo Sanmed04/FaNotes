@@ -351,7 +351,7 @@ function createNewPage(pageIndex) {
   const sheet = document.createElement('div');
   sheet.className = 'sheet page';
   sheet.dataset.pageIndex = String(pageIndex);
-  sheet.innerHTML = '<div class="sheet-main"><div class="page-body" contenteditable="true" data-placeholder="Escribe en la hoja..."></div><canvas class="page-drawing-canvas" aria-label="Dibujo sobre la hoja"></canvas></div><div class="sheet-titles" aria-label="Títulos de la hoja"></div>';
+  sheet.innerHTML = '<div class="page-body" contenteditable="true" data-placeholder="Escribe en la hoja..."></div><canvas class="page-drawing-canvas" aria-label="Dibujo sobre la hoja"></canvas>';
   const pages = getAllPages();
   const insertAfter = pageIndex > 0 ? pages[pageIndex - 1] : null;
   pagesContainer.insertBefore(sheet, insertAfter ? insertAfter.nextSibling : pagesContainer.firstChild);
@@ -393,6 +393,27 @@ function splitBodyContent(body, maxHeightPx) {
   return { fitHtml, overflowHtml };
 }
 
+function getTextLengthFromHtml(html) {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  return (div.textContent || '').length;
+}
+
+function getCursorOffsetInBody(body) {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return 0;
+  const range = sel.getRangeAt(0);
+  if (!body.contains(range.startContainer)) return 0;
+  try {
+    const r = document.createRange();
+    r.selectNodeContents(body);
+    r.setEnd(range.startContainer, range.startOffset);
+    return r.toString().length;
+  } catch (_) {
+    return 0;
+  }
+}
+
 function placeCursorAtEnd(el) {
   if (!el) return;
   el.focus();
@@ -422,23 +443,21 @@ function isCursorInLastLine(body) {
   if (!body.contains(range.startContainer)) return false;
   const bodyRect = body.getBoundingClientRect();
   const lineHeight = parseFloat(window.getComputedStyle(body).lineHeight) || 24;
-  const threshold = bodyRect.bottom - lineHeight * 3;
   const rects = range.getClientRects();
   if (rects.length) {
     const caretBottom = rects[rects.length - 1].bottom;
-    return caretBottom >= threshold - 2;
+    const threshold = bodyRect.bottom - lineHeight;
+    if (caretBottom >= threshold - 2) return true;
   }
   if (range.collapsed) {
     const endRange = document.createRange();
     endRange.selectNodeContents(body);
     endRange.collapse(false);
-    const same = endRange.endContainer === range.endContainer && endRange.endOffset === range.endOffset;
-    if (same) return true;
     try {
-      return range.compareBoundaryPoints(Range.END_TO_END, endRange) >= 0;
-    } catch (_) {
-      return false;
-    }
+      if (range.compareBoundaryPoints(Range.END_TO_END, endRange) >= 0) return true;
+    } catch (_) {}
+    const bodyText = (body.textContent || '').replace(/\s/g, '');
+    if (bodyText.length === 0) return true;
   }
   return false;
 }
@@ -449,11 +468,13 @@ function reflowPage(sheet) {
   const maxH = getBodyMaxHeightPx();
   if (body.scrollHeight <= maxH) return;
   const hadFocus = document.activeElement === body;
+  const cursorOffset = hadFocus ? getCursorOffsetInBody(body) : -1;
   const { fitHtml, overflowHtml } = splitBodyContent(body, maxH);
   if (!overflowHtml.trim()) return;
+  const fitTextLen = getTextLengthFromHtml(fitHtml);
+  const cursorWasInOverflow = hadFocus && cursorOffset >= fitTextLen;
   if (_faNotesDebug()) console.log('[FaNotes] reflowPage: moviendo overflow a hoja siguiente (ningún cuadro de texto en body)');
   body.innerHTML = fitHtml;
-  if (hadFocus) placeCursorAtEnd(body);
   const pages = getAllPages();
   const idx = pages.indexOf(sheet);
   let nextSheet = pages[idx + 1];
@@ -462,6 +483,17 @@ function reflowPage(sheet) {
   if (nextBody) {
     nextBody.innerHTML = overflowHtml + (nextBody.innerHTML.trim() ? '<br>' + nextBody.innerHTML : '');
     if (nextBody.scrollHeight > getBodyMaxHeightPx()) reflowPage(nextSheet);
+    if (cursorWasInOverflow) {
+      nextBody.focus();
+      requestAnimationFrame(() => {
+        placeCursorAtStart(nextBody);
+        nextSheet.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    } else if (hadFocus) {
+      placeCursorAtEnd(body);
+    }
+  } else if (hadFocus) {
+    placeCursorAtEnd(body);
   }
 }
 
@@ -483,7 +515,6 @@ function attachPageBodyReflow(body) {
     if (nextBody) {
       if (!nextBody.innerHTML.trim()) nextBody.innerHTML = '<br>';
       nextSheet.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      updateSheetTitles(nextSheet);
       nextBody.focus();
       requestAnimationFrame(() => {
         placeCursorAtStart(nextBody);
@@ -657,34 +688,8 @@ document.getElementById('imageFileInput')?.addEventListener('change', (e) => {
   reader.readAsDataURL(file);
 });
 
-// ——— Títulos anclados a la derecha de cada hoja + panel global ———
-function updateSheetTitles(sheet) {
-  const titlesEl = sheet.querySelector('.sheet-titles');
-  const body = sheet.querySelector('.page-body');
-  if (!titlesEl || !body) return;
-  const headings = body.querySelectorAll('.doc-heading, h2, h3');
-  titlesEl.innerHTML = headings.length ? [...headings].map((el, i) => {
-    const text = (el.textContent || '').trim().slice(0, 60);
-    return `<div class="sheet-title-item" data-outline-index="${i}">${escapeHtml(text) || '(Título)'}</div>`;
-  }).join('') : '';
-  titlesEl.querySelectorAll('.sheet-title-item').forEach((item, i) => {
-    item.addEventListener('click', () => {
-      const all = body.querySelectorAll('.doc-heading, h2, h3');
-      const el = all[i];
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        if (el.focus) el.focus();
-      }
-    });
-  });
-}
-
-function updateAllSheetsTitles() {
-  getAllPages().forEach(updateSheetTitles);
-}
-
+// ——— Panel Títulos a la derecha (sticky) ———
 function updateOutlinePanel() {
-  updateAllSheetsTitles();
   const listEl = document.getElementById('outlineList');
   const body = getCurrentPage()?.querySelector('.page-body');
   if (!listEl || !body) {
@@ -737,9 +742,8 @@ function getBoxHTML(type, opts = {}) {
 // ——— Dibujo sobre la hoja (misma página) + detección de formas (línea, círculo, rectángulo, flecha) ———
 function resizeDrawingCanvas(canvas, sheet) {
   if (!canvas || !sheet) return;
-  const main = sheet.querySelector('.sheet-main') || sheet;
-  const w = main.offsetWidth;
-  const h = main.offsetHeight;
+  const w = sheet.offsetWidth;
+  const h = sheet.offsetHeight;
   if (w && h && (canvas.width !== w || canvas.height !== h)) {
     const ctx = canvas.getContext('2d');
     const img = canvas.width ? canvas.toDataURL('image/png') : null;

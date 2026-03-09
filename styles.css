@@ -528,10 +528,12 @@ body {
   justify-content: center;
 }
 
-/* Panel de títulos a la derecha de la hoja */
+/* Panel Títulos a la derecha: siempre visible (sticky) al lado de las hojas */
 .outline-panel {
   width: 200px;
   min-width: 200px;
+  flex-shrink: 0;
+  align-self: flex-start;
   background: var(--bg-sidebar);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -652,7 +654,6 @@ body {
 }
 
 .sheet.page {
-  display: flex;
   width: 210mm;
   min-height: 297mm;
   max-width: 100%;
@@ -663,35 +664,6 @@ body {
   position: relative;
   padding: 0;
   min-width: 280px;
-}
-
-.sheet-main {
-  flex: 1;
-  min-width: 0;
-  position: relative;
-}
-
-.sheet-titles {
-  width: 140px;
-  flex-shrink: 0;
-  padding: 2rem 0.75rem 2rem 0.5rem;
-  border-left: 1px solid var(--border);
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  overflow-y: auto;
-  max-height: calc(297mm - 2rem);
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.sheet-titles .sheet-title-item {
-  text-align: right;
-  line-height: 1.3;
-  padding: 0.2rem 0;
-  border-radius: var(--radius-sm);
-  white-space: normal;
-  word-break: break-word;
 }
 
 /* Área de escritura principal en la hoja (flujo tipo Word) */
