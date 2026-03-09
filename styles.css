@@ -600,13 +600,13 @@ body {
 .doc-image.wrap-behind { z-index: -1; }
 .doc-image.wrap-front { z-index: 10; }
 
-/* Títulos para el esquema: centrados a la derecha de la página */
+/* Títulos dentro de la página: alineados a la derecha (medio-derecha) */
 .doc-heading {
   display: block;
   font-weight: 700;
   font-size: 1.1em;
   margin: 0.75em 0 0.35em;
-  text-align: center;
+  text-align: right;
 }
 
 /* Menú contextual de imagen */
@@ -815,15 +815,11 @@ body {
   gap: 1rem;
   margin-bottom: 1.25rem;
   flex-wrap: wrap;
-  width: 100%;
-  justify-content: flex-end;
 }
 
 .note-title-input {
-  width: 100%;
-  max-width: 420px;
-  margin-left: auto;
-  text-align: right;
+  flex: 1;
+  min-width: 200px;
   background: var(--bg-block);
   border: 1px solid var(--border);
   color: var(--text);

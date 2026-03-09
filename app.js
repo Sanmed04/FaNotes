@@ -281,18 +281,17 @@ function applyHeadingToSelection() {
   const range = sel.getRangeAt(0);
   const body = document.querySelector('.page-body:focus') || getCurrentPage()?.querySelector('.page-body');
   if (!body || !body.contains(range.commonAncestorContainer)) return;
+  if (range.collapsed) return;
   const span = document.createElement('span');
   span.className = 'doc-heading';
   span.contentEditable = 'true';
-  try {
-    range.surroundContents(span);
-  } catch (_) {
-    range.insertNode(span);
-    span.appendChild(range.extractContents());
-  }
+  const fragment = range.extractContents();
+  span.appendChild(fragment);
+  range.insertNode(span);
   sel.removeAllRanges();
   const r = document.createRange();
   r.selectNodeContents(span);
+  r.collapse(true);
   sel.addRange(r);
   updateOutlinePanel();
 }
@@ -421,12 +420,27 @@ function isCursorInLastLine(body) {
   if (!sel.rangeCount) return false;
   const range = sel.getRangeAt(0);
   if (!body.contains(range.startContainer)) return false;
-  const rects = range.getClientRects();
-  if (!rects.length) return false;
   const bodyRect = body.getBoundingClientRect();
   const lineHeight = parseFloat(window.getComputedStyle(body).lineHeight) || 24;
-  const lastLineBottom = bodyRect.bottom - lineHeight;
-  return rects[rects.length - 1].bottom >= lastLineBottom - 4;
+  const threshold = bodyRect.bottom - lineHeight * 2;
+  const rects = range.getClientRects();
+  if (rects.length) {
+    const caretBottom = rects[rects.length - 1].bottom;
+    return caretBottom >= threshold - 2;
+  }
+  if (range.collapsed) {
+    const endRange = document.createRange();
+    endRange.selectNodeContents(body);
+    endRange.collapse(false);
+    const same = endRange.endContainer === range.endContainer && endRange.endOffset === range.endOffset;
+    if (same) return true;
+    try {
+      return range.compareBoundaryPoints(Range.END_TO_END, endRange) >= 0;
+    } catch (_) {
+      return false;
+    }
+  }
+  return false;
 }
 
 function reflowPage(sheet) {
@@ -460,6 +474,7 @@ function attachPageBodyReflow(body) {
     const sheet = body.closest('.sheet.page');
     if (!sheet || !isCursorInLastLine(body)) return;
     e.preventDefault();
+    e.stopPropagation();
     const pages = getAllPages();
     const idx = pages.indexOf(sheet);
     let nextSheet = pages[idx + 1];
