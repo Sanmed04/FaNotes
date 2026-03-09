@@ -1,9 +1,10 @@
 const express = require('express');
 const cors = require('cors');
-const { Pool } = require('pg');
+const initSqlJs = require('sql.js');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -13,53 +14,86 @@ const GEMINI_MODELS = ['gemini-3.1-flash-lite-preview', 'gemini-2.5-flash-lite-p
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL ? { rejectUnauthorized: false } : false
-});
+const dbPath = process.env.SQLITE_PATH || path.join(__dirname, '..', 'data', 'notas.db');
+const dbDir = path.dirname(dbPath);
+let db;
 
-app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '5mb' }));
-
-async function initDb() {
-  const client = await pool.connect();
+function saveDb() {
   try {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        email TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-      CREATE TABLE IF NOT EXISTS folders (
-        id TEXT PRIMARY KEY,
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        name TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS notes (
-        id TEXT PRIMARY KEY,
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        title TEXT NOT NULL,
-        folder_id TEXT,
-        data JSONB NOT NULL DEFAULT '{}',
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-      );
-      CREATE TABLE IF NOT EXISTS summaries (
-        id TEXT PRIMARY KEY,
-        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        note_id TEXT,
-        note_title TEXT,
-        data JSONB NOT NULL DEFAULT '{}',
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-      CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(user_id);
-      CREATE INDEX IF NOT EXISTS idx_folders_user ON folders(user_id);
-      CREATE INDEX IF NOT EXISTS idx_summaries_user ON summaries(user_id);
-    `);
-  } finally {
-    client.release();
+    const data = db.export();
+    if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
+    fs.writeFileSync(dbPath, Buffer.from(data));
+  } catch (e) {
+    console.error('Error guardando DB:', e);
   }
+}
+
+function dbRun(sql, ...params) {
+  if (params.length) db.run(sql, params);
+  else db.run(sql);
+  const changes = db.getRowsModified();
+  saveDb();
+  return { changes };
+}
+
+function dbGet(sql, ...params) {
+  const stmt = db.prepare(sql);
+  if (params.length) stmt.bind(params);
+  const row = stmt.step() ? stmt.getAsObject() : null;
+  stmt.free();
+  return row;
+}
+
+function dbAll(sql, ...params) {
+  const stmt = db.prepare(sql);
+  if (params.length) stmt.bind(params);
+  const rows = [];
+  while (stmt.step()) rows.push(stmt.getAsObject());
+  stmt.free();
+  return rows;
+}
+
+function initDb() {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS folders (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS notes (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      folder_id TEXT,
+      data TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  db.run(`
+    CREATE TABLE IF NOT EXISTS summaries (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      note_id TEXT,
+      note_title TEXT,
+      data TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_folders_user ON folders(user_id)`);
+  db.run(`CREATE INDEX IF NOT EXISTS idx_summaries_user ON summaries(user_id)`);
+  saveDb();
 }
 
 function authMiddleware(req, res, next) {
@@ -75,6 +109,9 @@ function authMiddleware(req, res, next) {
   }
 }
 
+app.use(cors({ origin: true, credentials: true }));
+app.use(express.json({ limit: '5mb' }));
+
 app.post('/auth/register', async (req, res) => {
   try {
     const { email, password } = req.body || {};
@@ -82,15 +119,16 @@ app.post('/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'Email y contraseña (mín. 6 caracteres) requeridos' });
     }
     const password_hash = await bcrypt.hash(password, 10);
-    const r = await pool.query(
-      'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email',
-      [email.trim().toLowerCase(), password_hash]
-    );
-    const user = r.rows[0];
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id: user.id, email: user.email } });
+    const id = require('crypto').randomUUID();
+    try {
+      dbRun('INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)', id, email.trim().toLowerCase(), password_hash);
+    } catch (e) {
+      if (e.message && e.message.includes('UNIQUE')) return res.status(400).json({ error: 'Ese email ya está registrado' });
+      throw e;
+    }
+    const token = jwt.sign({ userId: id }, JWT_SECRET, { expiresIn: '30d' });
+    res.json({ token, user: { id, email: email.trim().toLowerCase() } });
   } catch (e) {
-    if (e.code === '23505') return res.status(400).json({ error: 'Ese email ya está registrado' });
     console.error(e);
     res.status(500).json({ error: 'Error al registrar' });
   }
@@ -100,9 +138,8 @@ app.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
-    const r = await pool.query('SELECT id, email, password_hash FROM users WHERE email = $1', [email.trim().toLowerCase()]);
-    if (r.rows.length === 0) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
-    const user = r.rows[0];
+    const user = dbGet('SELECT id, email, password_hash FROM users WHERE email = ?', email.trim().toLowerCase());
+    if (!user) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
@@ -115,51 +152,55 @@ app.post('/auth/login', async (req, res) => {
 
 app.get('/api/me', authMiddleware, async (req, res) => {
   try {
-    const r = await pool.query('SELECT id, email FROM users WHERE id = $1', [req.userId]);
-    if (r.rows.length === 0) return res.status(401).json({ error: 'Usuario no encontrado' });
-    res.json({ user: r.rows[0] });
+    const user = dbGet('SELECT id, email FROM users WHERE id = ?', req.userId);
+    if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
+    res.json({ user });
   } catch (e) {
     res.status(500).json({ error: 'Error' });
   }
 });
 
-app.get('/api/folders', authMiddleware, async (req, res) => {
+app.get('/api/folders', authMiddleware, (req, res) => {
   try {
-    const r = await pool.query('SELECT id, name FROM folders WHERE user_id = $1 ORDER BY name', [req.userId]);
-    res.json(r.rows.map(f => ({ id: f.id, name: f.name })));
+    const rows = dbAll('SELECT id, name FROM folders WHERE user_id = ? ORDER BY name', req.userId);
+    res.json(rows.map(f => ({ id: f.id, name: f.name })));
   } catch (e) {
     res.status(500).json({ error: 'Error' });
   }
 });
 
-app.post('/api/folders', authMiddleware, async (req, res) => {
+app.post('/api/folders', authMiddleware, (req, res) => {
   try {
     const { id, name } = req.body || {};
     if (!id || !name) return res.status(400).json({ error: 'id y name requeridos' });
-    await pool.query('INSERT INTO folders (id, user_id, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET name = $3', [id, req.userId, name]);
+    dbRun('INSERT INTO folders (id, user_id, name) VALUES (?, ?, ?) ON CONFLICT (id) DO UPDATE SET name = ?', id, req.userId, name, name);
     res.json({ id, name });
   } catch (e) {
     res.status(500).json({ error: 'Error' });
   }
 });
 
-app.get('/api/notes', authMiddleware, async (req, res) => {
+app.get('/api/notes', authMiddleware, (req, res) => {
   try {
-    const r = await pool.query('SELECT id, title, folder_id, data, updated_at FROM notes WHERE user_id = $1 ORDER BY updated_at DESC', [req.userId]);
-    res.json(r.rows.map(n => ({ id: n.id, title: n.title, folderId: n.folder_id, ...n.data, updatedAt: n.updated_at })));
+    const rows = dbAll('SELECT id, title, folder_id, data, updated_at FROM notes WHERE user_id = ? ORDER BY updated_at DESC', req.userId);
+    res.json(rows.map(n => {
+      const data = typeof n.data === 'string' ? JSON.parse(n.data || '{}') : n.data;
+      return { id: n.id, title: n.title, folderId: n.folder_id, ...data, updatedAt: n.updated_at };
+    }));
   } catch (e) {
     res.status(500).json({ error: 'Error' });
   }
 });
 
-app.post('/api/notes', authMiddleware, async (req, res) => {
+app.post('/api/notes', authMiddleware, (req, res) => {
   try {
     const { id, title, folderId, pages, pageDrawingData } = req.body || {};
     if (!id || title === undefined) return res.status(400).json({ error: 'id y title requeridos' });
-    const data = { pages: pages || [], pageDrawingData: pageDrawingData || {} };
-    await pool.query(
-      'INSERT INTO notes (id, user_id, title, folder_id, data, updated_at) VALUES ($1, $2, $3, $4, $5, NOW()) ON CONFLICT (id) DO UPDATE SET title = $3, folder_id = $4, data = $5, updated_at = NOW()',
-      [id, req.userId, title, folderId || null, JSON.stringify(data)]
+    const data = JSON.stringify({ pages: pages || [], pageDrawingData: pageDrawingData || {} });
+    dbRun(
+      `INSERT INTO notes (id, user_id, title, folder_id, data, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT (id) DO UPDATE SET title = ?, folder_id = ?, data = ?, updated_at = datetime('now')`,
+      id, req.userId, title, folderId || null, data, title, folderId || null, data
     );
     res.json({ id, title, folderId: folderId || null });
   } catch (e) {
@@ -167,33 +208,37 @@ app.post('/api/notes', authMiddleware, async (req, res) => {
   }
 });
 
-app.delete('/api/notes/:id', authMiddleware, async (req, res) => {
+app.delete('/api/notes/:id', authMiddleware, (req, res) => {
   try {
-    const r = await pool.query('DELETE FROM notes WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.id, req.userId]);
-    if (r.rowCount === 0) return res.status(404).json({ error: 'No encontrado' });
+    const r = dbRun('DELETE FROM notes WHERE id = ? AND user_id = ?', req.params.id, req.userId);
+    if (r.changes === 0) return res.status(404).json({ error: 'No encontrado' });
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: 'Error' });
   }
 });
 
-app.get('/api/summaries', authMiddleware, async (req, res) => {
+app.get('/api/summaries', authMiddleware, (req, res) => {
   try {
-    const r = await pool.query('SELECT id, note_id, note_title, data, created_at FROM summaries WHERE user_id = $1 ORDER BY created_at DESC', [req.userId]);
-    res.json(r.rows.map(s => ({ id: s.id, noteId: s.note_id, noteTitle: s.note_title, ...s.data, createdAt: s.created_at })));
+    const rows = dbAll('SELECT id, note_id, note_title, data, created_at FROM summaries WHERE user_id = ? ORDER BY created_at DESC', req.userId);
+    res.json(rows.map(s => {
+      const data = typeof s.data === 'string' ? JSON.parse(s.data || '{}') : s.data;
+      return { id: s.id, noteId: s.note_id, noteTitle: s.note_title, ...data, createdAt: s.created_at };
+    }));
   } catch (e) {
     res.status(500).json({ error: 'Error' });
   }
 });
 
-app.post('/api/summaries', authMiddleware, async (req, res) => {
+app.post('/api/summaries', authMiddleware, (req, res) => {
   try {
     const { id, noteId, noteTitle, sections } = req.body || {};
     if (!id) return res.status(400).json({ error: 'id requerido' });
-    const data = { sections: sections || [] };
-    await pool.query(
-      'INSERT INTO summaries (id, user_id, note_id, note_title, data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET note_id = $3, note_title = $4, data = $5',
-      [id, req.userId, noteId || null, noteTitle || '', JSON.stringify(data)]
+    const data = JSON.stringify({ sections: sections || [] });
+    dbRun(
+      `INSERT INTO summaries (id, user_id, note_id, note_title, data) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET note_id = ?, note_title = ?, data = ?`,
+      id, req.userId, noteId || null, noteTitle || '', data, noteId || null, noteTitle || '', data
     );
     res.json({ id, noteId, noteTitle });
   } catch (e) {
@@ -201,10 +246,10 @@ app.post('/api/summaries', authMiddleware, async (req, res) => {
   }
 });
 
-app.delete('/api/summaries/:id', authMiddleware, async (req, res) => {
+app.delete('/api/summaries/:id', authMiddleware, (req, res) => {
   try {
-    const r = await pool.query('DELETE FROM summaries WHERE id = $1 AND user_id = $2 RETURNING id', [req.params.id, req.userId]);
-    if (r.rowCount === 0) return res.status(404).json({ error: 'No encontrado' });
+    const r = dbRun('DELETE FROM summaries WHERE id = ? AND user_id = ?', req.params.id, req.userId);
+    if (r.changes === 0) return res.status(404).json({ error: 'No encontrado' });
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: 'Error' });
@@ -292,25 +337,33 @@ ${String(text).slice(0, 28000)}`;
   }
 });
 
-app.put('/api/sync', authMiddleware, async (req, res) => {
+app.put('/api/sync', authMiddleware, (req, res) => {
   try {
     const { folders, notes, summaries } = req.body || {};
     const userId = req.userId;
     if (folders && Array.isArray(folders)) {
       for (const f of folders) {
-        if (f.id && f.name) await pool.query('INSERT INTO folders (id, user_id, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET name = $3', [f.id, userId, f.name]);
+        if (f.id && f.name) dbRun('INSERT INTO folders (id, user_id, name) VALUES (?, ?, ?) ON CONFLICT (id) DO UPDATE SET name = ?', f.id, userId, f.name, f.name);
       }
     }
     if (notes && Array.isArray(notes)) {
       for (const n of notes) {
-        const data = { pages: n.pages || [], pageDrawingData: n.pageDrawingData || {} };
-        await pool.query('INSERT INTO notes (id, user_id, title, folder_id, data, updated_at) VALUES ($1, $2, $3, $4, $5, NOW()) ON CONFLICT (id) DO UPDATE SET title = $3, folder_id = $4, data = $5, updated_at = NOW()', [n.id, userId, n.title || 'Sin título', n.folderId || null, JSON.stringify(data)]);
+        const data = JSON.stringify({ pages: n.pages || [], pageDrawingData: n.pageDrawingData || {} });
+        dbRun(
+          `INSERT INTO notes (id, user_id, title, folder_id, data, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))
+          ON CONFLICT (id) DO UPDATE SET title = ?, folder_id = ?, data = ?, updated_at = datetime('now')`,
+          n.id, userId, n.title || 'Sin título', n.folderId || null, data, n.title || 'Sin título', n.folderId || null, data
+        );
       }
     }
     if (summaries && Array.isArray(summaries)) {
       for (const s of summaries) {
-        const data = { sections: s.sections || [] };
-        await pool.query('INSERT INTO summaries (id, user_id, note_id, note_title, data) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET note_id = $3, note_title = $4, data = $5', [s.id, userId, s.noteId || null, s.noteTitle || '', JSON.stringify(data)]);
+        const data = JSON.stringify({ sections: s.sections || [] });
+        dbRun(
+          `INSERT INTO summaries (id, user_id, note_id, note_title, data) VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT (id) DO UPDATE SET note_id = ?, note_title = ?, data = ?`,
+          s.id, userId, s.noteId || null, s.noteTitle || '', data, s.noteId || null, s.noteTitle || '', data
+        );
       }
     }
     res.json({ ok: true });
@@ -328,11 +381,18 @@ if (NODE_ENV === 'production') {
   });
 }
 
-initDb()
-  .then(() => {
-    app.listen(PORT, () => console.log('Notas API en puerto', PORT));
-  })
-  .catch((e) => {
-    console.error('Error iniciando DB:', e);
-    process.exit(1);
-  });
+async function start() {
+  const SQL = await initSqlJs();
+  let data = null;
+  try {
+    if (fs.existsSync(dbPath)) data = fs.readFileSync(dbPath);
+  } catch (_) {}
+  db = new SQL.Database(data);
+  initDb();
+  app.listen(PORT, () => console.log('Notas API en puerto', PORT));
+}
+
+start().catch(e => {
+  console.error('Error iniciando DB:', e);
+  process.exit(1);
+});

@@ -27,21 +27,18 @@ Los resúmenes con IA se generan con **Google Gemini API** desde el servidor. La
 
 ## Despliegue en Railway
 
-1. Crea un proyecto en [Railway](https://railway.app) y añade un servicio **PostgreSQL** (te dará `DATABASE_URL`).
-2. Conecta este repositorio y configura:
-   - **Root Directory**: deja vacío (raíz del repo).
-   - **Build Command**: vacío o `cd server && npm install`.
-   - **Start Command**: `cd server && node index.js` (o usa el Procfile).
-3. Variables de entorno en Railway (o en un archivo `.env` en local; ver `.env.example`):
-   - `DATABASE_URL`: la que te asigna PostgreSQL.
+1. Crea un proyecto en [Railway](https://railway.app) y conecta este repositorio.
+2. Configura **Start Command**: `npm start`.
+3. Variables de entorno (o `.env` en local; ver `.env.example`):
+   - `SQLITE_PATH`: ruta del archivo de base de datos (por defecto `./data/notas.db`). En Railway puedes usar un **Volume** para que persista y asignar una ruta como `/data/notas.db`.
    - `JWT_SECRET`: una frase o string aleatorio largo (para firmar sesiones).
-   - `GEMINI_API_KEY`: tu API key de Google Gemini (resúmenes con IA). Obtener en [Google AI Studio](https://aistudio.google.com/apikey).
+   - `GEMINI_API_KEY`: tu API key de Google Gemini (resúmenes con IA). [Google AI Studio](https://aistudio.google.com/apikey).
    - `NODE_ENV`: `production`.
-4. El servidor sirve la API (`/auth/*`, `/api/*`) y en producción también los estáticos (index.html, app.js, styles.css) desde la raíz.
+4. El servidor sirve la API (`/auth/*`, `/api/*`) y en producción los estáticos desde la raíz.
 
 ## Estructura
 
 - `index.html`, `styles.css`, `app.js` — Frontend (editor, login, sincronización).
-- `server/` — Backend Node/Express: auth (registro/login JWT), API de notas, carpetas y resúmenes con PostgreSQL.
+- `server/` — Backend Node/Express con **SQLite** (sql.js): auth (JWT), API de notas, carpetas y resúmenes.
 
 Dependencias (CDN): jsPDF y html2canvas para exportar a PDF.
