@@ -173,8 +173,15 @@ authSwitch.addEventListener('click', () => {
   authError.textContent = '';
 });
 if (logoutBtn) logoutBtn.addEventListener('click', () => {
+  state.notes = [];
+  state.folders = [];
+  state.summaries = [];
+  state.currentNoteId = null;
+  state.currentFolderId = null;
+  localStorage.removeItem(STORAGE_NOTES);
+  localStorage.removeItem(STORAGE_FOLDERS);
+  localStorage.removeItem(STORAGE_SUMMARIES);
   setToken(null);
-  loadState();
   showAuth();
   authMode = 'login';
   authSubmit.textContent = 'Iniciar sesión';
@@ -252,18 +259,18 @@ async function syncToApi() {
 }
 
 function saveNotes() {
-  localStorage.setItem(STORAGE_NOTES, JSON.stringify(state.notes));
-  syncToApi();
+  if (getToken()) syncToApi();
+  else localStorage.setItem(STORAGE_NOTES, JSON.stringify(state.notes));
 }
 
 function saveFolders() {
-  localStorage.setItem(STORAGE_FOLDERS, JSON.stringify(state.folders));
-  syncToApi();
+  if (getToken()) syncToApi();
+  else localStorage.setItem(STORAGE_FOLDERS, JSON.stringify(state.folders));
 }
 
 function saveSummaries() {
-  localStorage.setItem(STORAGE_SUMMARIES, JSON.stringify(state.summaries));
-  syncToApi();
+  if (getToken()) syncToApi();
+  else localStorage.setItem(STORAGE_SUMMARIES, JSON.stringify(state.summaries));
 }
 
 // ——— Editor (toolbar) ———
@@ -1702,7 +1709,7 @@ function initApp() {
   }
 }
 
-loadState();
+if (!getToken()) loadState();
 if (appMain) appMain.style.display = 'none';
 
 if (getToken()) {

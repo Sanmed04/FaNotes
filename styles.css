@@ -609,6 +609,7 @@ body {
   text-decoration: underline;
   text-underline-offset: 2px;
   text-decoration-color: var(--text-muted);
+  scroll-margin-top: 60px;
 }
 
 /* Menú contextual de imagen */

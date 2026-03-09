@@ -29,8 +29,14 @@ function saveDb() {
 }
 
 function dbRun(sql, ...params) {
-  if (params.length) db.run(sql, params);
-  else db.run(sql);
+  if (params.length) {
+    const stmt = db.prepare(sql);
+    stmt.bind(params);
+    stmt.step();
+    stmt.free();
+  } else {
+    db.run(sql);
+  }
   const changes = db.getRowsModified();
   saveDb();
   return { changes };
@@ -118,18 +124,23 @@ app.post('/auth/register', async (req, res) => {
     if (!email || !password || password.length < 6) {
       return res.status(400).json({ error: 'Email y contraseña (mín. 6 caracteres) requeridos' });
     }
+    const emailNorm = email.trim().toLowerCase();
     const password_hash = await bcrypt.hash(password, 10);
     const id = require('crypto').randomUUID();
     try {
-      dbRun('INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)', id, email.trim().toLowerCase(), password_hash);
+      dbRun('INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)', id, emailNorm, password_hash);
     } catch (e) {
-      if (e.message && e.message.includes('UNIQUE')) return res.status(400).json({ error: 'Ese email ya está registrado' });
+      const msg = (e && (e.message || String(e))) || '';
+      if (msg.includes('UNIQUE') || msg.includes('constraint') || msg.includes('unique')) {
+        return res.status(400).json({ error: 'Ese email ya está registrado' });
+      }
+      console.error('Register DB error:', e);
       throw e;
     }
     const token = jwt.sign({ userId: id }, JWT_SECRET, { expiresIn: '30d' });
-    res.json({ token, user: { id, email: email.trim().toLowerCase() } });
+    res.json({ token, user: { id, email: emailNorm } });
   } catch (e) {
-    console.error(e);
+    console.error('Register error:', e);
     res.status(500).json({ error: 'Error al registrar' });
   }
 });
@@ -138,14 +149,15 @@ app.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body || {};
     if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
-    const user = dbGet('SELECT id, email, password_hash FROM users WHERE email = ?', email.trim().toLowerCase());
+    const emailNorm = email.trim().toLowerCase();
+    const user = dbGet('SELECT id, email, password_hash FROM users WHERE email = ?', emailNorm);
     if (!user) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
     const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
     res.json({ token, user: { id: user.id, email: user.email } });
   } catch (e) {
-    console.error(e);
+    console.error('Login error:', e);
     res.status(500).json({ error: 'Error al iniciar sesión' });
   }
 });
@@ -382,6 +394,7 @@ if (NODE_ENV === 'production') {
 }
 
 async function start() {
+  if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
   const SQL = await initSqlJs();
   let data = null;
   try {
@@ -389,7 +402,10 @@ async function start() {
   } catch (_) {}
   db = new SQL.Database(data);
   initDb();
-  app.listen(PORT, () => console.log('Notas API en puerto', PORT));
+  app.listen(PORT, () => {
+    console.log('Notas API en puerto', PORT);
+    console.log('Base de datos:', dbPath);
+  });
 }
 
 start().catch(e => {
