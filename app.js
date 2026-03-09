@@ -11,6 +11,7 @@ const STORAGE_NOTES = 'notas-data';
 const STORAGE_FOLDERS = 'notas-folders';
 const STORAGE_SUMMARIES = 'notas-summaries';
 const AUTH_TOKEN_KEY = 'notas-token';
+const THEME_STORAGE_KEY = 'notas-theme';
 const API_BASE = ''; // mismo origen en Railway (front y API en el mismo servidor)
 
 // Estado
@@ -49,6 +50,25 @@ const authSubmit = document.getElementById('authSubmit');
 const authSwitch = document.getElementById('authSwitch');
 const userEmailEl = document.getElementById('userEmail');
 const logoutBtn = document.getElementById('logoutBtn');
+const themeToggle = document.getElementById('themeToggle');
+
+// ——— Modo día/noche ———
+function getTheme() {
+  return localStorage.getItem(THEME_STORAGE_KEY) || 'dark';
+}
+function setTheme(theme) {
+  theme = theme === 'light' ? 'light' : 'dark';
+  localStorage.setItem(THEME_STORAGE_KEY, theme);
+  document.body.setAttribute('data-theme', theme);
+  if (themeToggle) {
+    themeToggle.textContent = theme === 'light' ? '🌙' : '☀️';
+    themeToggle.setAttribute('title', theme === 'light' ? 'Cambiar a modo noche' : 'Cambiar a modo día');
+  }
+}
+if (themeToggle) {
+  setTheme(getTheme());
+  themeToggle.addEventListener('click', () => setTheme(getTheme() === 'light' ? 'dark' : 'light'));
+}
 
 // ——— API y auth ———
 function getToken() {
@@ -385,6 +405,30 @@ function placeCursorAtEnd(el) {
   sel.addRange(range);
 }
 
+function placeCursorAtStart(el) {
+  if (!el) return;
+  el.focus();
+  const sel = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function isCursorInLastLine(body) {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return false;
+  const range = sel.getRangeAt(0);
+  if (!body.contains(range.startContainer)) return false;
+  const rects = range.getClientRects();
+  if (!rects.length) return false;
+  const bodyRect = body.getBoundingClientRect();
+  const lineHeight = parseFloat(window.getComputedStyle(body).lineHeight) || 24;
+  const lastLineBottom = bodyRect.bottom - lineHeight;
+  return rects[rects.length - 1].bottom >= lastLineBottom - 4;
+}
+
 function reflowPage(sheet) {
   const body = sheet.querySelector('.page-body');
   if (!body) return;
@@ -411,6 +455,23 @@ let reflowTimer = null;
 let outlineTimer = null;
 function attachPageBodyReflow(body) {
   if (!body) return;
+  body.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const sheet = body.closest('.sheet.page');
+    if (!sheet || !isCursorInLastLine(body)) return;
+    e.preventDefault();
+    const pages = getAllPages();
+    const idx = pages.indexOf(sheet);
+    let nextSheet = pages[idx + 1];
+    if (!nextSheet) nextSheet = createNewPage(idx + 1);
+    const nextBody = nextSheet.querySelector('.page-body');
+    if (nextBody) {
+      if (!nextBody.innerHTML.trim()) nextBody.innerHTML = '<br>';
+      nextBody.focus();
+      placeCursorAtStart(nextBody);
+      nextSheet.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
   body.addEventListener('input', () => {
     clearTimeout(reflowTimer);
     reflowTimer = setTimeout(() => {

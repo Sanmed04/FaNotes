@@ -19,6 +19,20 @@
   --toolbar-height: 52px;
 }
 
+/* Modo día (claro) */
+body[data-theme="light"] {
+  --bg-app: #f0f0f4;
+  --bg-sidebar: #f8f8fc;
+  --bg-main: #ffffff;
+  --bg-block: #f5f5f9;
+  --bg-toolbar: #fafafc;
+  --border: #e0e0e8;
+  --text: #1a1a24;
+  --text-muted: #5c5c70;
+  --accent: #5b4cdb;
+  --accent-hover: #6d5ceb;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -586,12 +600,13 @@ body {
 .doc-image.wrap-behind { z-index: -1; }
 .doc-image.wrap-front { z-index: 10; }
 
-/* Títulos para el esquema */
+/* Títulos para el esquema: centrados a la derecha de la página */
 .doc-heading {
   display: block;
   font-weight: 700;
   font-size: 1.1em;
   margin: 0.75em 0 0.35em;
+  text-align: center;
 }
 
 /* Menú contextual de imagen */
@@ -657,13 +672,15 @@ body {
   height: calc(297mm - 4rem);
   min-height: 400px;
   max-height: calc(297mm - 4rem);
-  padding: 2rem;
+  padding: 2.5rem 3rem;
   overflow: hidden;
   outline: none;
   font-size: 1rem;
   line-height: 1.6;
   color: var(--text);
   box-sizing: border-box;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .page-body:empty::before {
@@ -798,11 +815,15 @@ body {
   gap: 1rem;
   margin-bottom: 1.25rem;
   flex-wrap: wrap;
+  width: 100%;
+  justify-content: flex-end;
 }
 
 .note-title-input {
-  flex: 1;
-  min-width: 200px;
+  width: 100%;
+  max-width: 420px;
+  margin-left: auto;
+  text-align: right;
   background: var(--bg-block);
   border: 1px solid var(--border);
   color: var(--text);
