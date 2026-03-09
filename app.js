@@ -351,7 +351,7 @@ function createNewPage(pageIndex) {
   const sheet = document.createElement('div');
   sheet.className = 'sheet page';
   sheet.dataset.pageIndex = String(pageIndex);
-  sheet.innerHTML = '<div class="page-body" contenteditable="true" data-placeholder="Escribe en la hoja..."></div><canvas class="page-drawing-canvas" aria-label="Dibujo sobre la hoja"></canvas>';
+  sheet.innerHTML = '<div class="sheet-main"><div class="page-body" contenteditable="true" data-placeholder="Escribe en la hoja..."></div><canvas class="page-drawing-canvas" aria-label="Dibujo sobre la hoja"></canvas></div><div class="sheet-titles" aria-label="Títulos de la hoja"></div>';
   const pages = getAllPages();
   const insertAfter = pageIndex > 0 ? pages[pageIndex - 1] : null;
   pagesContainer.insertBefore(sheet, insertAfter ? insertAfter.nextSibling : pagesContainer.firstChild);
@@ -422,7 +422,7 @@ function isCursorInLastLine(body) {
   if (!body.contains(range.startContainer)) return false;
   const bodyRect = body.getBoundingClientRect();
   const lineHeight = parseFloat(window.getComputedStyle(body).lineHeight) || 24;
-  const threshold = bodyRect.bottom - lineHeight * 2;
+  const threshold = bodyRect.bottom - lineHeight * 3;
   const rects = range.getClientRects();
   if (rects.length) {
     const caretBottom = rects[rects.length - 1].bottom;
@@ -474,7 +474,7 @@ function attachPageBodyReflow(body) {
     const sheet = body.closest('.sheet.page');
     if (!sheet || !isCursorInLastLine(body)) return;
     e.preventDefault();
-    e.stopPropagation();
+    e.stopImmediatePropagation();
     const pages = getAllPages();
     const idx = pages.indexOf(sheet);
     let nextSheet = pages[idx + 1];
@@ -482,11 +482,15 @@ function attachPageBodyReflow(body) {
     const nextBody = nextSheet.querySelector('.page-body');
     if (nextBody) {
       if (!nextBody.innerHTML.trim()) nextBody.innerHTML = '<br>';
-      nextBody.focus();
-      placeCursorAtStart(nextBody);
       nextSheet.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      updateSheetTitles(nextSheet);
+      nextBody.focus();
+      requestAnimationFrame(() => {
+        placeCursorAtStart(nextBody);
+        nextBody.focus();
+      });
     }
-  });
+  }, true);
   body.addEventListener('input', () => {
     clearTimeout(reflowTimer);
     reflowTimer = setTimeout(() => {
@@ -653,8 +657,34 @@ document.getElementById('imageFileInput')?.addEventListener('change', (e) => {
   reader.readAsDataURL(file);
 });
 
-// ——— Panel de títulos (esquema) a la derecha: listado y clic para ir ———
+// ——— Títulos anclados a la derecha de cada hoja + panel global ———
+function updateSheetTitles(sheet) {
+  const titlesEl = sheet.querySelector('.sheet-titles');
+  const body = sheet.querySelector('.page-body');
+  if (!titlesEl || !body) return;
+  const headings = body.querySelectorAll('.doc-heading, h2, h3');
+  titlesEl.innerHTML = headings.length ? [...headings].map((el, i) => {
+    const text = (el.textContent || '').trim().slice(0, 60);
+    return `<div class="sheet-title-item" data-outline-index="${i}">${escapeHtml(text) || '(Título)'}</div>`;
+  }).join('') : '';
+  titlesEl.querySelectorAll('.sheet-title-item').forEach((item, i) => {
+    item.addEventListener('click', () => {
+      const all = body.querySelectorAll('.doc-heading, h2, h3');
+      const el = all[i];
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (el.focus) el.focus();
+      }
+    });
+  });
+}
+
+function updateAllSheetsTitles() {
+  getAllPages().forEach(updateSheetTitles);
+}
+
 function updateOutlinePanel() {
+  updateAllSheetsTitles();
   const listEl = document.getElementById('outlineList');
   const body = getCurrentPage()?.querySelector('.page-body');
   if (!listEl || !body) {
@@ -707,8 +737,9 @@ function getBoxHTML(type, opts = {}) {
 // ——— Dibujo sobre la hoja (misma página) + detección de formas (línea, círculo, rectángulo, flecha) ———
 function resizeDrawingCanvas(canvas, sheet) {
   if (!canvas || !sheet) return;
-  const w = sheet.offsetWidth;
-  const h = sheet.offsetHeight;
+  const main = sheet.querySelector('.sheet-main') || sheet;
+  const w = main.offsetWidth;
+  const h = main.offsetHeight;
   if (w && h && (canvas.width !== w || canvas.height !== h)) {
     const ctx = canvas.getContext('2d');
     const img = canvas.width ? canvas.toDataURL('image/png') : null;

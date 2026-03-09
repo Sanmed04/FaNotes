@@ -116,8 +116,11 @@
         <div class="pages-and-outline">
           <div class="pages-container" id="pagesContainer">
           <div class="sheet page" id="currentPage" data-page-index="0">
-            <div class="page-body" contenteditable="true" data-placeholder="Escribe en la hoja..."></div>
-            <canvas class="page-drawing-canvas" aria-label="Dibujo sobre la hoja"></canvas>
+            <div class="sheet-main">
+              <div class="page-body" contenteditable="true" data-placeholder="Escribe en la hoja..."></div>
+              <canvas class="page-drawing-canvas" aria-label="Dibujo sobre la hoja"></canvas>
+            </div>
+            <div class="sheet-titles" aria-label="Títulos de la hoja"></div>
           </div>
         </div>
           <aside class="outline-panel" id="outlinePanel">
