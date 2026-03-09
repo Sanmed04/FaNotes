@@ -3,6 +3,9 @@
  * Resúmenes generados con Gemini API.
  */
 
+// Debug: en consola hacer window.DEBUG_FA_NOTES = true y recargar, o asignar y llamar a las funciones de nuevo
+function _faNotesDebug() { return typeof window !== 'undefined' && window.DEBUG_FA_NOTES; }
+
 const STORAGE_KEY = 'notas-app';
 const STORAGE_NOTES = 'notas-data';
 const STORAGE_FOLDERS = 'notas-folders';
@@ -325,6 +328,7 @@ function getCurrentPage() {
 }
 
 function createNewPage(pageIndex) {
+  if (_faNotesDebug()) console.log('[FaNotes] createNewPage', pageIndex, '(no se añade ningún cuadro de texto aquí)');
   const sheet = document.createElement('div');
   sheet.className = 'sheet page';
   sheet.dataset.pageIndex = String(pageIndex);
@@ -349,23 +353,15 @@ function getBodyMaxHeightPx() {
 
 function splitBodyContent(body, maxHeightPx) {
   const wrap = document.createElement('div');
-  wrap.style.width = body.offsetWidth + 'px';
-  wrap.style.padding = window.getComputedStyle(body).padding;
-  wrap.style.font = window.getComputedStyle(body).font;
-  wrap.style.lineHeight = window.getComputedStyle(body).lineHeight;
-  wrap.style.overflow = 'hidden';
-  wrap.style.visibility = 'hidden';
-  wrap.style.position = 'absolute';
-  wrap.style.left = '-9999px';
-  wrap.style.top = '0';
-  wrap.style.boxSizing = 'border-box';
+  const bodyStyle = window.getComputedStyle(body);
+  wrap.style.cssText = `width:${body.offsetWidth}px;padding:${bodyStyle.padding};font:${bodyStyle.font};line-height:${bodyStyle.lineHeight};overflow:hidden;visibility:hidden;position:absolute;left:-9999px;top:0;box-sizing:border-box;contain:layout`;
   document.body.appendChild(wrap);
 
   const source = document.createElement('div');
   source.innerHTML = body.innerHTML;
   const overflow = document.createElement('div');
   while (source.lastChild) {
-    wrap.innerHTML = '';
+    wrap.textContent = '';
     wrap.appendChild(source.cloneNode(true));
     if (wrap.offsetHeight <= maxHeightPx) break;
     const last = source.lastChild;
@@ -397,6 +393,7 @@ function reflowPage(sheet) {
   const hadFocus = document.activeElement === body;
   const { fitHtml, overflowHtml } = splitBodyContent(body, maxH);
   if (!overflowHtml.trim()) return;
+  if (_faNotesDebug()) console.log('[FaNotes] reflowPage: moviendo overflow a hoja siguiente (ningún cuadro de texto en body)');
   body.innerHTML = fitHtml;
   if (hadFocus) placeCursorAtEnd(body);
   const pages = getAllPages();
@@ -411,15 +408,19 @@ function reflowPage(sheet) {
 }
 
 let reflowTimer = null;
+let outlineTimer = null;
 function attachPageBodyReflow(body) {
   if (!body) return;
   body.addEventListener('input', () => {
     clearTimeout(reflowTimer);
     reflowTimer = setTimeout(() => {
       const sheet = body.closest('.sheet.page');
-      if (sheet) reflowPage(sheet);
-    }, 300);
-    updateOutlinePanel();
+      if (sheet) {
+        requestAnimationFrame(() => reflowPage(sheet));
+      }
+    }, 450);
+    clearTimeout(outlineTimer);
+    outlineTimer = setTimeout(updateOutlinePanel, 200);
   });
   setupBodyImagePaste(body);
 }
@@ -951,6 +952,7 @@ function saveCurrentNote() {
     const bodyHtml = body ? body.innerHTML : '';
     const boxes = [];
     sheet.querySelectorAll('.text-box').forEach(box => {
+      if (_faNotesDebug()) console.log('[FaNotes] saveCurrentNote: guardando cuadro en hoja', i, 'boxId', box.dataset.boxId || box.dataset.blockId);
       const boxId = box.dataset.boxId || box.dataset.blockId || id();
       box.dataset.boxId = boxId;
       const content = box.querySelector('.block-content');
@@ -1028,6 +1030,10 @@ function loadNoteIntoEditor(note) {
 
 function addBoxToSheet(sheet, b, note) {
   if (b.type !== 'text') return;
+  if (_faNotesDebug()) {
+    const pageIdx = getAllPages().indexOf(sheet);
+    console.log('[FaNotes] addBoxToSheet', { pageIndex: pageIdx, noteId: note?.id, boxId: b.boxId }, 'origen: carga de nota (pagesData[].boxes)');
+  }
   const div = document.createElement('div');
   div.innerHTML = getBoxHTML('text', {
     content: b.content || '',
