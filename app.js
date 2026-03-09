@@ -277,11 +277,27 @@ function execCommand(cmd, value = null) {
 
 function applyHeadingToSelection() {
   const sel = window.getSelection();
-  if (!sel.rangeCount) return;
-  const range = sel.getRangeAt(0);
   const body = document.querySelector('.page-body:focus') || getCurrentPage()?.querySelector('.page-body');
-  if (!body || !body.contains(range.commonAncestorContainer)) return;
-  if (range.collapsed) return;
+  if (!body) return;
+  let range;
+  if (sel.rangeCount) {
+    range = sel.getRangeAt(0);
+    if (range.collapsed || !body.contains(range.commonAncestorContainer)) {
+      range = null;
+    }
+  }
+  if (!range && savedSelection && savedSelection.body === body) {
+    try {
+      range = document.createRange();
+      range.setStart(savedSelection.startContainer, savedSelection.startOffset);
+      range.setEnd(savedSelection.endContainer, savedSelection.endOffset);
+      if (!body.contains(range.commonAncestorContainer)) range = null;
+      else sel.removeAllRanges(), sel.addRange(range);
+    } catch (_) {
+      range = null;
+    }
+  }
+  if (!range || range.collapsed) return;
   const span = document.createElement('span');
   span.className = 'doc-heading';
   span.contentEditable = 'true';
@@ -293,12 +309,31 @@ function applyHeadingToSelection() {
   r.selectNodeContents(span);
   r.collapse(true);
   sel.addRange(r);
+  savedSelection = null;
   updateOutlinePanel();
 }
 
+let savedSelection = null;
+document.addEventListener('selectionchange', () => {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return;
+  const range = sel.getRangeAt(0);
+  const body = getCurrentPage()?.querySelector('.page-body');
+  if (body && body.contains(range.startContainer) && !range.collapsed) {
+    try {
+      savedSelection = { body, startContainer: range.startContainer, startOffset: range.startOffset, endContainer: range.endContainer, endOffset: range.endOffset };
+    } catch (_) {
+      savedSelection = null;
+    }
+  }
+});
+
 document.querySelectorAll('.btn-tool[data-cmd]').forEach(btn => {
+  const cmd = btn.dataset.cmd;
+  if (cmd === 'formatHeading') {
+    btn.addEventListener('mousedown', (e) => e.preventDefault());
+  }
   btn.addEventListener('click', () => {
-    const cmd = btn.dataset.cmd;
     const valueInput = btn.dataset.value;
     if (valueInput) {
       const input = document.getElementById(valueInput);
