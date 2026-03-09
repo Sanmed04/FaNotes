@@ -849,9 +849,9 @@ function setupBoxDrag(box) {
   handle.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
-    const page = getCurrentPage();
-    if (!page) return;
-    const rect = page.getBoundingClientRect();
+    const container = box.parentElement;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
     startX = e.clientX;
     startY = e.clientY;
     startLeft = parseFloat(box.style.left) || 0;
@@ -863,8 +863,8 @@ function setupBoxDrag(box) {
       let newTop = startTop + dy;
       const w = parseFloat(box.style.width) || 200;
       const h = parseFloat(box.style.height) || 120;
-      const pageW = rect.width;
-      const pageH = rect.height;
+      const pageW = container.offsetWidth;
+      const pageH = container.offsetHeight;
       newLeft = Math.max(0, Math.min(pageW - w, newLeft));
       newTop = Math.max(0, Math.min(pageH - h, newTop));
       box.style.left = newLeft + 'px';
@@ -885,8 +885,10 @@ function setupBoxDrag(box) {
 document.getElementById('addTextBox').addEventListener('click', () => {
   const sheet = getCurrentPage();
   if (!sheet) return;
-  const w = sheet.offsetWidth || PAGE_WIDTH;
-  const h = sheet.offsetHeight || PAGE_HEIGHT;
+  const pageBody = sheet.querySelector('.page-body');
+  const container = pageBody || sheet;
+  const w = container.offsetWidth || PAGE_WIDTH;
+  const h = container.offsetHeight || PAGE_HEIGHT;
   const boxW = 260;
   const boxH = 140;
   const left = Math.max(20, (w - boxW) / 2);
@@ -894,7 +896,7 @@ document.getElementById('addTextBox').addEventListener('click', () => {
   const div = document.createElement('div');
   div.innerHTML = getBoxHTML('text', { left, top, width: boxW, height: boxH }).trim();
   const box = div.firstElementChild;
-  sheet.appendChild(box);
+  container.appendChild(box);
   setupBoxDrag(box);
 });
 
@@ -924,7 +926,7 @@ function createNote(folderId = null) {
     id: id(),
     title: 'Sin título',
     folderId: folderId || null,
-    pages: [{ boxes: [{ type: 'text', boxId: id(), left: 40, top: 40, width: 260, height: 140, content: '' }] }],
+    pages: [{ boxes: [] }],
     drawingData: {}
   };
   state.notes.push(note);
@@ -1034,6 +1036,8 @@ function addBoxToSheet(sheet, b, note) {
     const pageIdx = getAllPages().indexOf(sheet);
     console.log('[FaNotes] addBoxToSheet', { pageIndex: pageIdx, noteId: note?.id, boxId: b.boxId }, 'origen: carga de nota (pagesData[].boxes)');
   }
+  const pageBody = sheet.querySelector('.page-body');
+  const container = pageBody || sheet;
   const div = document.createElement('div');
   div.innerHTML = getBoxHTML('text', {
     content: b.content || '',
@@ -1044,7 +1048,7 @@ function addBoxToSheet(sheet, b, note) {
     height: b.height
   }).trim();
   const box = div.firstElementChild;
-  sheet.appendChild(box);
+  container.appendChild(box);
   setupBoxDrag(box);
 }
 
