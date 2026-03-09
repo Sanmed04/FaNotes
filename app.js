@@ -1061,10 +1061,6 @@ function deleteNote(noteId, e) {
           const body = sheet.querySelector('.page-body');
           if (body) body.innerHTML = '';
           sheet.querySelectorAll('.text-box, .drawing-box').forEach(b => b.remove());
-          const div = document.createElement('div');
-          div.innerHTML = getBoxHTML('text', { left: 40, top: 40, width: 260, height: 140 }).trim();
-          sheet.appendChild(div.firstElementChild);
-          setupBoxDrag(sheet.querySelector('.text-box'));
         } else sheet.remove();
       });
     }
@@ -1074,17 +1070,21 @@ function deleteNote(noteId, e) {
 }
 
 function renderNoteList(filterFolderId = null) {
+  const filter = filterFolderId === undefined ? state.currentFolderId : filterFolderId;
   let notes = state.notes;
-  if (filterFolderId) notes = notes.filter(n => n.folderId === filterFolderId);
+  if (filter) notes = notes.filter(n => n.folderId === filter);
   noteList.innerHTML = notes.map(n => `
-    <li data-id="${n.id}" data-folder="${n.folderId || ''}">
+    <li data-id="${n.id}" data-folder="${n.folderId || ''}" draggable="true" class="note-list-item">
       <span class="note-name">${escapeHtml(n.title)}</span>
-      <button type="button" class="btn-delete-note" data-id="${n.id}" title="Eliminar nota">🗑</button>
+      <div class="note-item-actions">
+        <button type="button" class="btn-move-note" data-id="${n.id}" title="Mover a carpeta">📁</button>
+        <button type="button" class="btn-delete-note" data-id="${n.id}" title="Eliminar nota">🗑</button>
+      </div>
     </li>
   `).join('');
   noteList.querySelectorAll('li').forEach(li => {
     li.addEventListener('click', (e) => {
-      if (e.target.closest('.btn-delete-note')) return;
+      if (e.target.closest('.btn-delete-note') || e.target.closest('.btn-move-note')) return;
       openNote(li.dataset.id);
     });
     const delBtn = li.querySelector('.btn-delete-note');
@@ -1094,20 +1094,108 @@ function renderNoteList(filterFolderId = null) {
       const id = e.currentTarget.getAttribute('data-id');
       if (id) deleteNote(id, e);
     });
+    const moveBtn = li.querySelector('.btn-move-note');
+    if (moveBtn) moveBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showMoveNoteMenu(e.currentTarget, moveBtn.getAttribute('data-id'));
+    });
+    setupNoteDrag(li);
   });
 }
 
+function showMoveNoteMenu(anchor, noteId) {
+  const note = getNote(noteId);
+  if (!note) return;
+  const existing = document.getElementById('moveNoteMenu');
+  if (existing) existing.remove();
+  const menu = document.createElement('div');
+  menu.id = 'moveNoteMenu';
+  menu.className = 'move-note-menu';
+  menu.innerHTML = '<div class="move-note-menu-title">Mover a</div>' +
+    '<button type="button" data-folder-id="">Sin carpeta</button>' +
+    state.folders.map(f => `<button type="button" data-folder-id="${f.id}">${escapeHtml(f.name)}</button>`).join('');
+  document.body.appendChild(menu);
+  const rect = anchor.getBoundingClientRect();
+  menu.style.left = rect.left + 'px';
+  menu.style.top = (rect.bottom + 4) + 'px';
+  menu.querySelectorAll('button[data-folder-id]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const folderId = btn.dataset.folderId || null;
+      note.folderId = folderId;
+      saveNotes();
+      if (getToken()) syncToApi();
+      renderNoteList();
+      renderFolderOptions();
+      if (state.currentNoteId === note.id) noteFolder.value = folderId || '';
+      menu.remove();
+    });
+  });
+  const close = () => {
+    menu.remove();
+    document.removeEventListener('click', close);
+  };
+  menu.addEventListener('click', (e) => e.stopPropagation());
+  setTimeout(() => document.addEventListener('click', close), 0);
+}
+
+function setupNoteDrag(li) {
+  const noteId = li.dataset.id;
+  li.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/plain', noteId);
+    e.dataTransfer.effectAllowed = 'move';
+    li.classList.add('dragging');
+  });
+  li.addEventListener('dragend', () => li.classList.remove('dragging'));
+}
+
+function moveNoteToFolder(noteId, folderId) {
+  const note = getNote(noteId);
+  if (!note) return;
+  note.folderId = folderId || null;
+  saveNotes();
+  if (getToken()) syncToApi();
+  renderNoteList();
+  renderFolderOptions();
+  if (state.currentNoteId === noteId) noteFolder.value = folderId || '';
+}
+
 function renderFolderList() {
-  folderList.innerHTML = state.folders.map(f => `
-    <li data-id="${f.id}">${escapeHtml(f.name)}</li>
-  `).join('');
+  folderList.innerHTML =
+    '<li data-id="" class="folder-item-all">Todas</li>' +
+    state.folders.map(f => `
+      <li data-id="${f.id}" class="folder-drop-target">${escapeHtml(f.name)}</li>
+    `).join('');
   folderList.querySelectorAll('li').forEach(li => {
+    const folderId = li.dataset.id || null;
+    const isAll = li.classList.contains('folder-item-all');
+    if (state.currentFolderId === folderId || (isAll && state.currentFolderId === null))
+      li.classList.add('active');
+    else
+      li.classList.remove('active');
     li.addEventListener('click', () => {
-      state.currentFolderId = li.dataset.id;
+      state.currentFolderId = isAll ? null : folderId;
       document.querySelectorAll('.folder-list li').forEach(el => el.classList.remove('active'));
       li.classList.add('active');
       renderNoteList(state.currentFolderId);
     });
+    if (!isAll) setupFolderDropTarget(li);
+  });
+}
+
+function setupFolderDropTarget(folderLi) {
+  const folderId = folderLi.dataset.id;
+  folderLi.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    folderLi.classList.add('drop-over');
+  });
+  folderLi.addEventListener('dragleave', () => folderLi.classList.remove('drop-over'));
+  folderLi.addEventListener('drop', (e) => {
+    e.preventDefault();
+    folderLi.classList.remove('drop-over');
+    const noteId = e.dataTransfer.getData('text/plain');
+    if (noteId) moveNoteToFolder(noteId, folderId);
   });
 }
 
