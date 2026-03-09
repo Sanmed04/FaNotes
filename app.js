@@ -378,14 +378,27 @@ function splitBodyContent(body, maxHeightPx) {
   return { fitHtml, overflowHtml };
 }
 
+function placeCursorAtEnd(el) {
+  if (!el) return;
+  el.focus();
+  const sel = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
 function reflowPage(sheet) {
   const body = sheet.querySelector('.page-body');
   if (!body) return;
   const maxH = getBodyMaxHeightPx();
   if (body.scrollHeight <= maxH) return;
+  const hadFocus = document.activeElement === body;
   const { fitHtml, overflowHtml } = splitBodyContent(body, maxH);
   if (!overflowHtml.trim()) return;
   body.innerHTML = fitHtml;
+  if (hadFocus) placeCursorAtEnd(body);
   const pages = getAllPages();
   const idx = pages.indexOf(sheet);
   let nextSheet = pages[idx + 1];
