@@ -329,7 +329,9 @@ function createNewPage(pageIndex) {
   sheet.className = 'sheet page';
   sheet.dataset.pageIndex = String(pageIndex);
   sheet.innerHTML = '<div class="page-body" contenteditable="true" data-placeholder="Escribe en la hoja..."></div><canvas class="page-drawing-canvas" aria-label="Dibujo sobre la hoja"></canvas>';
-  pagesContainer.appendChild(sheet);
+  const pages = getAllPages();
+  const insertAfter = pageIndex > 0 ? pages[pageIndex - 1] : null;
+  pagesContainer.insertBefore(sheet, insertAfter ? insertAfter.nextSibling : pagesContainer.firstChild);
   const body = sheet.querySelector('.page-body');
   attachPageBodyReflow(body);
   setupBodyImagePaste(body);
