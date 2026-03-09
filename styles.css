@@ -442,6 +442,129 @@ body {
   align-items: center;
 }
 
+.pages-and-outline {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  width: 100%;
+  max-width: 100%;
+  justify-content: center;
+}
+
+/* Panel de títulos a la derecha de la hoja */
+.outline-panel {
+  width: 200px;
+  min-width: 200px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  position: sticky;
+  top: calc(var(--toolbar-height) + 1rem);
+  max-height: calc(100vh - var(--toolbar-height) - 3rem);
+  overflow-y: auto;
+}
+
+.outline-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+.outline-list {
+  list-style: none;
+}
+
+.outline-list li {
+  font-size: 0.85rem;
+  padding: 0.35rem 0;
+  cursor: pointer;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  padding-left: 0.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outline-list li:hover {
+  color: var(--accent);
+  background: rgba(124, 108, 246, 0.1);
+}
+
+/* Imagen en documento: movible y opciones tipo Word */
+.doc-image {
+  display: inline-block;
+  position: absolute;
+  cursor: move;
+  user-select: none;
+  border: 2px solid transparent;
+  border-radius: var(--radius-sm);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.doc-image:hover,
+.doc-image.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(124, 108, 246, 0.3);
+}
+
+.doc-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  vertical-align: bottom;
+  pointer-events: none;
+}
+
+.doc-image.wrap-behind { z-index: -1; }
+.doc-image.wrap-front { z-index: 10; }
+
+/* Títulos para el esquema */
+.doc-heading {
+  display: block;
+  font-weight: 700;
+  font-size: 1.1em;
+  margin: 0.75em 0 0.35em;
+}
+
+/* Menú contextual de imagen */
+.image-context-menu {
+  position: fixed;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.35rem;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 1000;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.image-context-menu.show {
+  display: flex;
+}
+
+.image-context-menu button {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-family: var(--font-sans);
+}
+
+.image-context-menu button:hover {
+  background: var(--border);
+}
+
 /* Hojas tipo Word (A4) */
 .pages-container {
   display: flex;

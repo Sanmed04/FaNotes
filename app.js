@@ -245,7 +245,33 @@ function saveSummaries() {
 
 // ——— Editor (toolbar) ———
 function execCommand(cmd, value = null) {
+  if (cmd === 'formatHeading') {
+    applyHeadingToSelection();
+    return;
+  }
   document.execCommand(cmd, false, value);
+}
+
+function applyHeadingToSelection() {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return;
+  const range = sel.getRangeAt(0);
+  const body = document.querySelector('.page-body:focus') || getCurrentPage()?.querySelector('.page-body');
+  if (!body || !body.contains(range.commonAncestorContainer)) return;
+  const span = document.createElement('span');
+  span.className = 'doc-heading';
+  span.contentEditable = 'true';
+  try {
+    range.surroundContents(span);
+  } catch (_) {
+    range.insertNode(span);
+    span.appendChild(range.extractContents());
+  }
+  sel.removeAllRanges();
+  const r = document.createRange();
+  r.selectNodeContents(span);
+  sel.addRange(r);
+  updateOutlinePanel();
 }
 
 document.querySelectorAll('.btn-tool[data-cmd]').forEach(btn => {
@@ -304,7 +330,9 @@ function createNewPage(pageIndex) {
   sheet.dataset.pageIndex = String(pageIndex);
   sheet.innerHTML = '<div class="page-body" contenteditable="true" data-placeholder="Escribe en la hoja..."></div><canvas class="page-drawing-canvas" aria-label="Dibujo sobre la hoja"></canvas>';
   pagesContainer.appendChild(sheet);
-  attachPageBodyReflow(sheet.querySelector('.page-body'));
+  const body = sheet.querySelector('.page-body');
+  attachPageBodyReflow(body);
+  setupBodyImagePaste(body);
   initPageDrawingCanvas(sheet.querySelector('.page-drawing-canvas'), sheet);
   return sheet;
 }
@@ -376,8 +404,192 @@ function attachPageBodyReflow(body) {
       const sheet = body.closest('.sheet.page');
       if (sheet) reflowPage(sheet);
     }, 300);
+    updateOutlinePanel();
+  });
+  setupBodyImagePaste(body);
+}
+
+// ——— Imágenes movibles y opciones tipo Word (delante/detrás, enviar atrás, traer al frente) ———
+function createImageWrapper(src, left, top) {
+  const wrap = document.createElement('span');
+  wrap.className = 'doc-image wrap-front';
+  wrap.contentEditable = 'false';
+  wrap.dataset.imageId = id();
+  wrap.style.left = (left || 20) + 'px';
+  wrap.style.top = (top || 20) + 'px';
+  wrap.style.width = '200px';
+  const img = document.createElement('img');
+  img.src = src;
+  img.onload = () => {
+    const w = Math.min(280, img.naturalWidth);
+    wrap.style.width = w + 'px';
+  };
+  wrap.appendChild(img);
+  return wrap;
+}
+
+function setupImageElements(container) {
+  if (!container) return;
+  container.querySelectorAll('.doc-image').forEach(wrap => {
+    if (wrap.dataset.setup === '1') return;
+    wrap.dataset.setup = '1';
+    setupImageDrag(wrap);
+    wrap.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      showImageContextMenu(e.clientX, e.clientY, wrap);
+    });
+    wrap.addEventListener('click', (e) => {
+      e.preventDefault();
+      container.querySelectorAll('.doc-image.selected').forEach(el => el.classList.remove('selected'));
+      wrap.classList.add('selected');
+    });
   });
 }
+
+function setupImageDrag(wrap) {
+  const sheet = wrap.closest('.sheet.page');
+  if (!sheet) return;
+  let startX, startY, startLeft, startTop;
+  wrap.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    if (!e.target.closest('.doc-image')) return;
+    e.preventDefault();
+    startX = e.clientX;
+    startY = e.clientY;
+    startLeft = parseFloat(wrap.style.left) || 0;
+    startTop = parseFloat(wrap.style.top) || 0;
+    const onMove = (e2) => {
+      const dx = e2.clientX - startX;
+      const dy = e2.clientY - startY;
+      wrap.style.left = (startLeft + dx) + 'px';
+      wrap.style.top = (startTop + dy) + 'px';
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+function setupBodyImagePaste(body) {
+  if (!body || body.dataset.imagePaste === '1') return;
+  body.dataset.imagePaste = '1';
+  body.addEventListener('paste', (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf('image') !== -1) {
+        e.preventDefault();
+        const file = items[i].getAsFile();
+        const reader = new FileReader();
+        reader.onload = () => {
+          const wrap = createImageWrapper(reader.result, 40, 40);
+          body.appendChild(wrap);
+          setupImageElements(body);
+        };
+        reader.readAsDataURL(file);
+        break;
+      }
+    }
+  });
+}
+
+let imageContextMenuTarget = null;
+function showImageContextMenu(x, y, wrap) {
+  imageContextMenuTarget = wrap;
+  const menu = document.getElementById('imageContextMenu');
+  if (!menu) return;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.classList.add('show');
+}
+
+function hideImageContextMenu() {
+  document.getElementById('imageContextMenu')?.classList.remove('show');
+  imageContextMenuTarget = null;
+}
+
+document.getElementById('imageContextMenu')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-wrap], button[data-order]');
+  if (!btn || !imageContextMenuTarget) return;
+  const w = imageContextMenuTarget;
+  if (btn.dataset.wrap === 'behind') {
+    w.classList.remove('wrap-front');
+    w.classList.add('wrap-behind');
+  } else if (btn.dataset.wrap === 'front') {
+    w.classList.remove('wrap-behind');
+    w.classList.add('wrap-front');
+  } else if (btn.dataset.order === 'back') {
+    const all = w.closest('.page-body')?.querySelectorAll('.doc-image') || [];
+    let minZ = 999;
+    all.forEach(el => {
+      const z = parseInt(el.style.zIndex, 10) || 0;
+      if (z < minZ) minZ = z;
+    });
+    w.style.zIndex = String(minZ - 1);
+  } else if (btn.dataset.order === 'front') {
+    const all = w.closest('.page-body')?.querySelectorAll('.doc-image') || [];
+    let maxZ = 0;
+    all.forEach(el => {
+      const z = parseInt(el.style.zIndex, 10) || 0;
+      if (z > maxZ) maxZ = z;
+    });
+    w.style.zIndex = String(maxZ + 1);
+  }
+  hideImageContextMenu();
+});
+
+document.addEventListener('click', () => hideImageContextMenu());
+
+document.getElementById('addImageBtn')?.addEventListener('click', () => {
+  document.getElementById('imageFileInput')?.click();
+});
+document.getElementById('imageFileInput')?.addEventListener('change', (e) => {
+  const file = e.target.files?.[0];
+  if (!file || !file.type.startsWith('image/')) return;
+  e.target.value = '';
+  const body = getCurrentPage()?.querySelector('.page-body');
+  if (!body) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const wrap = createImageWrapper(reader.result, 40, 40);
+    body.appendChild(wrap);
+    setupImageElements(body);
+  };
+  reader.readAsDataURL(file);
+});
+
+// ——— Panel de títulos (esquema) a la derecha: listado y clic para ir ———
+function updateOutlinePanel() {
+  const listEl = document.getElementById('outlineList');
+  const body = getCurrentPage()?.querySelector('.page-body');
+  if (!listEl || !body) {
+    if (listEl) listEl.innerHTML = '';
+    return;
+  }
+  const headings = body.querySelectorAll('.doc-heading, h2, h3');
+  listEl.innerHTML = headings.length ? [...headings].map((el, i) => {
+    const text = (el.textContent || '').trim().slice(0, 50);
+    return `<li data-outline-index="${i}">${escapeHtml(text) || '(Título)'}</li>`;
+  }).join('') : '<li class="outline-empty">Sin títulos</li>';
+  listEl.querySelectorAll('li[data-outline-index]').forEach(li => {
+    li.addEventListener('click', () => {
+      const idx = parseInt(li.dataset.outlineIndex, 10);
+      const all = body.querySelectorAll('.doc-heading, h2, h3');
+      const el = all[idx];
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (el.focus) el.focus();
+      }
+    });
+  });
+}
+
+pagesContainer.addEventListener('click', () => {
+  setTimeout(updateOutlinePanel, 0);
+});
 
 // ——— Cuadros de texto y dibujo (posición libre en la hoja) ———
 function getBoxHTML(type, opts = {}) {
@@ -400,7 +612,7 @@ function getBoxHTML(type, opts = {}) {
   return '';
 }
 
-// ——— Dibujo sobre la hoja (misma página) ———
+// ——— Dibujo sobre la hoja (misma página) + detección de formas (línea, círculo, rectángulo, flecha) ———
 function resizeDrawingCanvas(canvas, sheet) {
   if (!canvas || !sheet) return;
   const w = sheet.offsetWidth;
@@ -411,19 +623,137 @@ function resizeDrawingCanvas(canvas, sheet) {
     canvas.width = w;
     canvas.height = h;
     if (img) {
-      const i = new Image();
-      i.onload = () => { ctx.drawImage(i, 0, 0, w, h); };
-      i.src = img;
+      canvas._baseImage = img;
+      canvas._paths = canvas._paths || [];
+    }
+    redrawDrawingCanvas(canvas);
+  }
+}
+
+function drawPath(ctx, path) {
+  ctx.strokeStyle = path.color || '#000000';
+  ctx.lineWidth = path.width || 3;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  if (path.type === 'line') {
+    ctx.beginPath();
+    ctx.moveTo(path.x1, path.y1);
+    ctx.lineTo(path.x2, path.y2);
+    ctx.stroke();
+  } else if (path.type === 'arrow') {
+    ctx.beginPath();
+    ctx.moveTo(path.x1, path.y1);
+    ctx.lineTo(path.x2, path.y2);
+    ctx.stroke();
+    const dx = path.x2 - path.x1, dy = path.y2 - path.y1;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    const head = (path.width || 3) * 5;
+    ctx.beginPath();
+    ctx.moveTo(path.x2, path.y2);
+    ctx.lineTo(path.x2 - ux * head - uy * head * 0.6, path.y2 - uy * head + ux * head * 0.6);
+    ctx.moveTo(path.x2, path.y2);
+    ctx.lineTo(path.x2 - ux * head + uy * head * 0.6, path.y2 - uy * head - ux * head * 0.6);
+    ctx.stroke();
+  } else if (path.type === 'circle') {
+    ctx.beginPath();
+    ctx.arc(path.cx, path.cy, path.r, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (path.type === 'rect') {
+    ctx.strokeRect(path.x, path.y, path.w, path.h);
+  } else if (path.type === 'freehand' && path.points && path.points.length >= 2) {
+    ctx.beginPath();
+    ctx.moveTo(path.points[0].x, path.points[0].y);
+    for (let i = 1; i < path.points.length; i++) ctx.lineTo(path.points[i].x, path.points[i].y);
+    ctx.stroke();
+  }
+}
+
+function redrawDrawingCanvas(canvas) {
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (canvas._baseImage) {
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      (canvas._paths || []).forEach(p => drawPath(ctx, p));
+    };
+    img.src = canvas._baseImage;
+  } else {
+    (canvas._paths || []).forEach(p => drawPath(ctx, p));
+  }
+}
+
+function detectShape(points, strokeWidth) {
+  if (!points || points.length < 2) return null;
+  const first = points[0], last = points[points.length - 1];
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const len = dist(first, last);
+
+  // Línea: puntos casi alineados
+  let sumD = 0, maxD = 0;
+  for (let i = 0; i < points.length; i++) {
+    const t = i / Math.max(1, points.length - 1);
+    const px = first.x + t * (last.x - first.x);
+    const py = first.y + t * (last.y - first.y);
+    const d = dist(points[i], { x: px, y: py });
+    sumD += d;
+    if (d > maxD) maxD = d;
+  }
+  const avgD = sumD / points.length;
+  if (len > 15 && maxD < Math.max(20, strokeWidth * 4)) {
+    return { type: 'line', x1: first.x, y1: first.y, x2: last.x, y2: last.y };
+  }
+  if (len > 20 && maxD < Math.max(25, strokeWidth * 5)) {
+    return { type: 'arrow', x1: first.x, y1: first.y, x2: last.x, y2: last.y };
+  }
+
+  // Círculo: trazo cerrado y puntos a distancia similar del centro
+  const closed = dist(first, last) < Math.max(20, strokeWidth * 3);
+  if (closed && points.length >= 8) {
+    let cx = 0, cy = 0;
+    points.forEach(p => { cx += p.x; cy += p.y; });
+    cx /= points.length; cy /= points.length;
+    let r = 0;
+    points.forEach(p => { r += dist(p, { x: cx, y: cy }); });
+    r /= points.length;
+    let err = 0;
+    points.forEach(p => { err += Math.abs(dist(p, { x: cx, y: cy }) - r); });
+    err /= points.length;
+    if (err < Math.max(25, r * 0.2)) {
+      return { type: 'circle', cx, cy, r };
     }
   }
+
+  // Rectángulo: bounding box si el trazo recorre el perímetro
+  if (points.length >= 6) {
+    let minX = points[0].x, maxX = points[0].x, minY = points[0].y, maxY = points[0].y;
+    points.forEach(p => {
+      if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+    });
+    const w = maxX - minX, h = maxY - minY;
+    if (w > 20 && h > 20) {
+      const perimeter = 2 * (w + h);
+      const pathLen = points.reduce((acc, p, i) => i ? acc + dist(points[i - 1], p) : 0, 0);
+      if (pathLen > perimeter * 0.6) {
+        return { type: 'rect', x: minX, y: minY, w, h };
+      }
+    }
+  }
+
+  return null;
 }
 
 function initPageDrawingCanvas(canvas, sheet) {
   if (!canvas || !sheet) return;
+  canvas._paths = canvas._paths || [];
+  canvas._baseImage = canvas._baseImage || null;
   resizeDrawingCanvas(canvas, sheet);
   const drawColorEl = document.getElementById('drawColor');
   const drawSizeEl = document.getElementById('drawSize');
   let drawing = false;
+  let currentPoints = [];
 
   function getPos(e) {
     const rect = canvas.getBoundingClientRect();
@@ -438,30 +768,40 @@ function initPageDrawingCanvas(canvas, sheet) {
     if (!state.drawMode) return;
     e.preventDefault();
     drawing = true;
-    const ctx = canvas.getContext('2d');
     const pos = getPos(e);
-    ctx.beginPath();
-    ctx.moveTo(pos.x, pos.y);
+    currentPoints = [{ x: pos.x, y: pos.y }];
   }
 
   function move(e) {
     if (!drawing || !state.drawMode) return;
     e.preventDefault();
-    const ctx = canvas.getContext('2d');
     const pos = getPos(e);
+    currentPoints.push({ x: pos.x, y: pos.y });
+    const ctx = canvas.getContext('2d');
     ctx.strokeStyle = (drawColorEl && drawColorEl.value) || '#000000';
     ctx.lineWidth = (drawSizeEl && parseInt(drawSizeEl.value, 10)) || 3;
     ctx.lineCap = 'round';
-    ctx.lineTo(pos.x, pos.y);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(pos.x, pos.y);
+    if (currentPoints.length >= 2) {
+      const p = currentPoints[currentPoints.length - 2];
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(pos.x, pos.y);
+      ctx.stroke();
+    }
   }
 
   function end() {
+    if (!drawing) return;
     drawing = false;
-    const ctx = canvas.getContext('2d');
-    ctx.beginPath();
+    const color = (drawColorEl && drawColorEl.value) || '#000000';
+    const width = (drawSizeEl && parseInt(drawSizeEl.value, 10)) || 3;
+    const shape = detectShape(currentPoints, width);
+    const path = shape
+      ? { ...shape, color, width }
+      : { type: 'freehand', points: currentPoints.slice(), color, width };
+    canvas._paths.push(path);
+    redrawDrawingCanvas(canvas);
+    currentPoints = [];
   }
 
   canvas.addEventListener('mousedown', start);
@@ -543,10 +883,20 @@ document.getElementById('addTextBox').addEventListener('click', () => {
 });
 
 document.getElementById('toggleDrawMode').addEventListener('click', () => setDrawMode(!state.drawMode));
+document.getElementById('undoDrawingStroke')?.addEventListener('click', () => {
+  const sheet = getCurrentPage();
+  const canvas = sheet?.querySelector('.page-drawing-canvas');
+  if (!canvas || !canvas._paths || canvas._paths.length === 0) return;
+  canvas._paths.pop();
+  redrawDrawingCanvas(canvas);
+});
+
 document.getElementById('clearPageDrawing').addEventListener('click', () => {
   const sheet = getCurrentPage();
   const canvas = sheet && sheet.querySelector('.page-drawing-canvas');
   if (canvas) {
+    canvas._paths = [];
+    canvas._baseImage = null;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
@@ -620,6 +970,7 @@ function loadNoteIntoEditor(note) {
       if (body) {
         body.innerHTML = pagesData[0].bodyHtml || '';
         attachPageBodyReflow(body);
+        setupImageElements(body);
       }
       let canvas = sheet.querySelector('.page-drawing-canvas');
       if (!canvas) {
@@ -632,13 +983,10 @@ function loadNoteIntoEditor(note) {
       }
       initPageDrawingCanvas(canvas, sheet);
       if (note.pageDrawingData && note.pageDrawingData[0]) {
-        const img = new Image();
-        img.onload = () => {
-          const ctx = canvas.getContext('2d');
-          resizeDrawingCanvas(canvas, sheet);
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        };
-        img.src = note.pageDrawingData[0];
+        canvas._baseImage = note.pageDrawingData[0];
+        canvas._paths = canvas._paths || [];
+        resizeDrawingCanvas(canvas, sheet);
+        redrawDrawingCanvas(canvas);
       }
       sheet.querySelectorAll('.text-box').forEach(b => b.remove());
       (pagesData[0].boxes || []).filter(b => b.type === 'text').forEach(b => addBoxToSheet(sheet, b, note));
@@ -647,17 +995,18 @@ function loadNoteIntoEditor(note) {
   for (let i = 1; i < pagesData.length; i++) {
     const sheet = createNewPage(i);
     const body = sheet.querySelector('.page-body');
-    if (body) body.innerHTML = pagesData[i].bodyHtml || '';
+    if (body) {
+      body.innerHTML = pagesData[i].bodyHtml || '';
+      setupBodyImagePaste(body);
+      setupImageElements(body);
+    }
     (pagesData[i].boxes || []).filter(b => b.type === 'text').forEach(b => addBoxToSheet(sheet, b, note));
     const canvas = sheet.querySelector('.page-drawing-canvas');
     if (canvas && note.pageDrawingData && note.pageDrawingData[i]) {
-      const img = new Image();
-      img.onload = () => {
-        const ctx = canvas.getContext('2d');
-        resizeDrawingCanvas(canvas, sheet);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      };
-      img.src = note.pageDrawingData[i];
+      canvas._baseImage = note.pageDrawingData[i];
+      canvas._paths = canvas._paths || [];
+      resizeDrawingCanvas(canvas, sheet);
+      redrawDrawingCanvas(canvas);
     }
   }
 }
@@ -684,6 +1033,7 @@ function openNote(noteId) {
   if (!note) return;
   state.currentNoteId = noteId;
   loadNoteIntoEditor(note);
+  updateOutlinePanel();
   document.querySelectorAll('.note-list li').forEach(el => el.classList.remove('active'));
   const li = document.querySelector(`.note-list li[data-id="${noteId}"]`);
   if (li) li.classList.add('active');
