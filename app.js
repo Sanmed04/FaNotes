@@ -569,9 +569,33 @@ let outlineTimer = null;
 function attachPageBodyReflow(body) {
   if (!body) return;
   body.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter') return;
     const sheet = body.closest('.sheet.page');
-    if (!sheet || !isCursorInLastLine(body)) return;
+    if (!sheet) return;
+    if (e.key === 'Backspace') {
+      const pages = getAllPages();
+      const idx = pages.indexOf(sheet);
+      if (idx > 0) {
+        const isEmpty = !body.textContent || body.textContent.replace(/\s/g, '').length === 0;
+        const noBoxes = !sheet.querySelectorAll('.text-box').length;
+        if (isEmpty && noBoxes) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          const prevSheet = pages[idx - 1];
+          const prevBody = prevSheet.querySelector('.page-body');
+          sheet.remove();
+          if (prevBody) {
+            prevBody.focus();
+            placeCursorAtEnd(prevBody);
+            prevSheet.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+          saveCurrentNote();
+          updateOutlinePanel();
+        }
+      }
+      return;
+    }
+    if (e.key !== 'Enter') return;
+    if (!isCursorInLastLine(body)) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     const pages = getAllPages();

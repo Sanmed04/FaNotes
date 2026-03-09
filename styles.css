@@ -526,22 +526,21 @@ body {
   width: 100%;
   max-width: 100%;
   justify-content: center;
+  padding-right: 220px;
 }
 
-/* Panel Títulos a la derecha: siempre visible (sticky) en pantalla */
+/* Panel Títulos: fijo a la derecha durante todo el scroll de la nota */
 .outline-panel {
+  position: fixed;
+  right: 1rem;
+  top: calc(var(--toolbar-height) + 1rem);
   width: 200px;
-  min-width: 200px;
-  flex-shrink: 0;
-  align-self: flex-start;
+  max-height: calc(100vh - var(--toolbar-height) - 2rem);
+  overflow-y: auto;
   background: var(--bg-sidebar);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 0.75rem;
-  position: sticky;
-  top: calc(var(--toolbar-height) + 1rem);
-  max-height: calc(100vh - var(--toolbar-height) - 3rem);
-  overflow-y: auto;
   z-index: 10;
 }
 
